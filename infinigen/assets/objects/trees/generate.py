@@ -515,8 +515,6 @@ class BushParameters(AssetParameters):
         float, Field(ge=0.1, le=0.6, json_schema_extra={"editable": True})
     ]
     pts: Annotated[int, Field(ge=0, le=99, json_schema_extra={"editable": True})]
-    leaf_type: str = Field(json_schema_extra={"editable": False})
-    trunk_surface: Any = Field(json_schema_extra={"editable": False})
 
 
 @gin.configurable
@@ -532,25 +530,30 @@ class BushFactory(ParameterizedAssetFactory, GenericTreeFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BushParameters:
+        self._leaf_type = str(
+            np.random.choice(["leaf_v2", "flower", "berry"], p=[0.5, 0.5, 0])
+        )
+        self._trunk_surface = weighted_sample(material_assignments.bark)
         return BushParameters(
             seed=seed,
             shrub_shape=int(np.random.randint(2)),
             alpha=float(np.random.rand() * 0.3),
             leaf_width=float(np.random.rand() * 0.5 + 0.1),
             pts=int(np.random.randint(100)),
-            leaf_type=str(
-                np.random.choice(["leaf_v2", "flower", "berry"], p=[0.5, 0.5, 0])
-            ),
-            trunk_surface=weighted_sample(material_assignments.bark),
         )
 
     def apply_parameters(self, params: BushParameters, *, spawn_scope: bool = True) -> None:
+        if not hasattr(self, "_leaf_type"):
+            self._leaf_type = str(
+                np.random.choice(["leaf_v2", "flower", "berry"], p=[0.5, 0.5, 0])
+            )
+            self._trunk_surface = weighted_sample(material_assignments.bark)
         self.shrub_shape = params.shrub_shape
         self.alpha = params.alpha
         self.leaf_width = params.leaf_width
         self.pts = params.pts
-        self.leaf_type = params.leaf_type
-        self.trunk_surface = params.trunk_surface
+        self.leaf_type = self._leaf_type
+        self.trunk_surface = self._trunk_surface
         self._use_fixed_spawn_draws = spawn_scope
 
     def _run_post_init(self) -> None:

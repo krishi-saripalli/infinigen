@@ -19,12 +19,11 @@ from infinigen.assets.utils.object import join_objects
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed, int_hash
 
 
 class NatureShelfTrinketsParameters(AssetParameters):
     size: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
-    asset_index: Annotated[int, Field(ge=0, le=9999999, json_schema_extra={"editable": False})]
-    base_factory: Any = Field(json_schema_extra={"editable": False})
 
 
 class NatureShelfTrinketsFactory(ParameterizedAssetFactory, AssetFactory):
@@ -51,40 +50,40 @@ class NatureShelfTrinketsFactory(ParameterizedAssetFactory, AssetFactory):
         super(NatureShelfTrinketsFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _init_base_factory(self, seed: int) -> None:
+        with FixedSeed(seed):
+            base_factory_fn = np.random.choice(
+                self.factories, p=self.probs / self.probs.sum()
+            )
+            kwargs: dict = {}
+            if base_factory_fn in [
+                creatures.HerbivoreFactory,
+                creatures.CarnivoreFactory,
+            ]:
+                kwargs["hair"] = False
+            self.base_factory = base_factory_fn(seed, **kwargs)
+
     def _sample_init_parameters(self, seed: int) -> NatureShelfTrinketsParameters:
-        base_factory_fn = np.random.choice(
-            self.factories, p=self.probs / self.probs.sum()
-        )
-        kwargs: dict[str, Any] = {}
-        if base_factory_fn in [
-            creatures.HerbivoreFactory,
-            creatures.CarnivoreFactory,
-        ]:
-            kwargs["hair"] = False
-        return NatureShelfTrinketsParameters(
-            seed=seed,
-            size=0.125,
-            asset_index=0,
-            base_factory=base_factory_fn(seed, **kwargs),
-        )
+        self._init_base_factory(seed)
+        return NatureShelfTrinketsParameters(seed=seed, size=0.125)
 
     def _sample_spawn_parameters(
         self, params: NatureShelfTrinketsParameters, seed: int, i: int
     ) -> NatureShelfTrinketsParameters:
-        return params.model_copy(
-            update={
-                "size": np.random.uniform(0.1, 0.15),
-                "asset_index": np.random.randint(1e7),
-            }
-        )
+        return params.model_copy(update={"size": np.random.uniform(0.1, 0.15)})
 
     def apply_parameters(
         self, params: NatureShelfTrinketsParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.base_factory = params.base_factory
-        self._asset_index = params.asset_index
+        self._init_base_factory(params.seed)
         self._placeholder_size = params.size
         self._use_fixed_spawn_draws = spawn_scope
+        if spawn_scope:
+            with FixedSeed(int_hash((params.seed, params.seed))):
+                np.random.uniform(0.1, 0.15)
+                self._asset_index = np.random.randint(1e7)
+        else:
+            self._asset_index = 0
 
     def create_placeholder(self, **params) -> bpy.types.Object:
         size = (

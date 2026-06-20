@@ -62,9 +62,6 @@ class RackParameters(AssetParameters):
     margin: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": True})] = (
         0.4
     )
-    stand_surface: Any = Field(json_schema_extra={"editable": False})
-    support_surface: Any = Field(json_schema_extra={"editable": False})
-    frame_surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class RackFactory(ParameterizedAssetFactory, AssetFactory):
@@ -77,6 +74,9 @@ class RackFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_init_parameters(self, seed: int) -> RackParameters:
         thickness = uniform(0.06, 0.08)
         metal_surface = weighted_sample(material_assignments.metals)()
+        self._stand_surface = metal_surface
+        self._support_surface = metal_surface
+        self._frame_surface = metal_surface
         return RackParameters(
             seed=seed,
             depth=uniform(1, 1.2),
@@ -89,9 +89,6 @@ class RackFactory(ParameterizedAssetFactory, AssetFactory):
             is_support_round_draw=uniform(),
             frame_height_ratio=uniform(3, 4),
             frame_count=int(np.random.randint(20, 30)),
-            stand_surface=metal_surface,
-            support_surface=metal_surface,
-            frame_surface=metal_surface,
         )
 
     def _sample_spawn_parameters(
@@ -110,9 +107,14 @@ class RackFactory(ParameterizedAssetFactory, AssetFactory):
         self.is_support_round = params.is_support_round_draw < 0.5
         self.frame_height = params.thickness * params.frame_height_ratio
         self.frame_count = params.frame_count
-        self.stand_surface = params.stand_surface
-        self.support_surface = params.support_surface
-        self.frame_surface = params.frame_surface
+        if not hasattr(self, "_stand_surface"):
+            metal_surface = weighted_sample(material_assignments.metals)()
+            self._stand_surface = metal_surface
+            self._support_surface = metal_surface
+            self._frame_surface = metal_surface
+        self.stand_surface = self._stand_surface
+        self.support_surface = self._support_surface
+        self.frame_surface = self._frame_surface
         self.pallet_factory = PalletFactory(self.factory_seed)
         self.margin_range = 0.3, 0.5
         self._use_fixed_spawn_draws = spawn_scope

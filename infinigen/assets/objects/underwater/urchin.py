@@ -51,7 +51,6 @@ class UrchinParameters(AssetParameters):
     )
     u: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})] = 0.9
     v: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})] = 0.9
-    materials: Any = Field(json_schema_extra={"editable": False})
 
 
 class UrchinFactory(ParameterizedAssetFactory, AssetFactory):
@@ -61,16 +60,19 @@ class UrchinFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_materials(self, base_hue: float) -> list[Any]:
+        return [
+            surface.shaderfunc_to_material(shader, base_hue)
+            for shader in [self.shader_spikes, self.shader_girdle, self.shader_base]
+        ]
+
     def _sample_init_parameters(self, seed: int) -> UrchinParameters:
         base_hue = uniform(-0.25, 0.15) % 1
+        self._materials = self._sample_materials(base_hue)
         return UrchinParameters(
             seed=seed,
             base_hue=base_hue,
             freq=log_uniform(100, 200),
-            materials=[
-                surface.shaderfunc_to_material(shader, base_hue)
-                for shader in [self.shader_spikes, self.shader_girdle, self.shader_base]
-            ],
         )
 
     def _sample_spawn_parameters(
@@ -97,7 +99,9 @@ class UrchinFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         self.base_hue = params.base_hue
         self.freq = 1 / params.freq
-        self.materials = params.materials
+        if not hasattr(self, "_materials"):
+            self._materials = self._sample_materials(params.base_hue)
+        self.materials = self._materials
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self._z_scale_ratio = params.z_scale_ratio

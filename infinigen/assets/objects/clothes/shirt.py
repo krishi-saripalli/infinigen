@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -26,6 +26,7 @@ from infinigen.assets.utils.object import new_circle
 from infinigen.assets.utils.uv import wrap_front_back
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util import blender as butil
 from infinigen.core.util.random import log_uniform, weighted_sample
 
@@ -39,9 +40,6 @@ class ShirtParameters(AssetParameters):
     ]
     sleeve_width: Annotated[float, Field(ge=0.14, le=0.18, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})]
-    shirt_type: Literal["short", "long"] = Field(json_schema_extra={"editable": False})
-    sleeve_length: float = Field(json_schema_extra={"editable": False})
-    surface: Any = Field(json_schema_extra={"editable": False})
     y_anchors: Annotated[float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})] = (
         0.5
     )
@@ -69,12 +67,6 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
         size_offset = uniform(0.25, 0.3)
         size = width + size_offset
         size_neck_frac = uniform(0.1, 0.15)
-        shirt_type = np.random.choice(["short", "long"])
-        surface_gen_class = weighted_sample(material_assignments.pants)
-        surface_material_gen = surface_gen_class()
-        surface = surface_material_gen()
-        if surface == ArtFabric:
-            surface = surface(seed)
         return ShirtParameters(
             seed=seed,
             width=width,
@@ -83,9 +75,6 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
             sleeve_angle=uniform(np.pi / 6, np.pi / 4),
             sleeve_width=uniform(0.14, 0.18),
             thickness=log_uniform(0.02, 0.03),
-            shirt_type=shirt_type,
-            sleeve_length=self._sample_sleeve_length(shirt_type, size),
-            surface=surface,
         )
 
     def _sample_spawn_parameters(
@@ -101,15 +90,22 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: ShirtParameters, *, spawn_scope: bool = True
     ) -> None:
+        size = params.width + params.size
+        with FixedSeed(params.seed):
+            shirt_type = np.random.choice(["short", "long"])
+            surface_gen_class = weighted_sample(material_assignments.pants)
+            surface_mat = surface_gen_class()()
+            if surface_mat == ArtFabric:
+                surface_mat = surface_mat(params.seed)
         self.width = params.width
-        self.size = params.width + params.size
+        self.size = size
         self.size_neck = params.size_neck * self.size
-        self.type = params.shirt_type
-        self.sleeve_length = params.sleeve_length
+        self.type = shirt_type
+        self.sleeve_length = self._sample_sleeve_length(shirt_type, size)
         self.sleeve_width = params.sleeve_width
         self.sleeve_angle = params.sleeve_angle
         self.thickness = params.thickness
-        self.surface = params.surface
+        self.surface = surface_mat
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.y_anchors = params.y_anchors

@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -18,22 +18,19 @@ from infinigen.assets.utils.uv import wrap_sides
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import clip_gaussian, weighted_sample
 
 
 class RugParameters(AssetParameters):
     width: Annotated[float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": True})]
     length: Annotated[float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": True})]
-    rug_shape: Literal["rectangle", "circle", "rounded", "ellipse"] = Field(
-        json_schema_extra={"editable": False}
-    )
     rounded_buffer: Annotated[
         float, Field(ge=0.1, le=0.5, json_schema_extra={"editable": True})
     ]
     thickness: Annotated[
         float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
     ]
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class RugFactory(ParameterizedAssetFactory, AssetFactory):
@@ -43,37 +40,57 @@ class RugFactory(ParameterizedAssetFactory, AssetFactory):
         super(RugFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _apply_internal_state(self, params: RugParameters) -> None:
+        with FixedSeed(params.seed):
+            clip_gaussian(3, 1, 2, 6)
+            self.rug_shape = np.random.choice(
+                ["rectangle", "circle", "rounded", "ellipse"]
+            )
+            if self.rug_shape != "circle":
+                uniform(1, 1.5)
+            uniform(0.1, 0.5)
+            uniform(0.01, 0.02)
+            surface_gen_class = weighted_sample(material_assignments.rug_fabric)
+            surface = surface_gen_class()()
+            if surface == ArtRug:
+                surface = surface(params.seed)
+            self.surface = surface
+
     def _sample_init_parameters(self, seed: int) -> RugParameters:
-        width = clip_gaussian(3, 1, 2, 6)
-        rug_shape = np.random.choice(["rectangle", "circle", "rounded", "ellipse"])
-        length = 1.0 if rug_shape == "circle" else uniform(1, 1.5)
-        surface_gen_class = weighted_sample(material_assignments.rug_fabric)
-        surface = surface_gen_class()()
-        if surface == ArtRug:
-            surface = surface(seed)
+        with FixedSeed(seed):
+            width = clip_gaussian(3, 1, 2, 6)
+            rug_shape = np.random.choice(
+                ["rectangle", "circle", "rounded", "ellipse"]
+            )
+            length = 1.0 if rug_shape == "circle" else uniform(1, 1.5)
+            rounded_buffer = uniform(0.1, 0.5)
+            thickness = uniform(0.01, 0.02)
+            surface_gen_class = weighted_sample(material_assignments.rug_fabric)
+            surface = surface_gen_class()()
+            if surface == ArtRug:
+                surface = surface(seed)
+            self.rug_shape = rug_shape
+            self.surface = surface
         return RugParameters(
             seed=seed,
             width=width,
             length=length,
-            rug_shape=rug_shape,
-            rounded_buffer=uniform(0.1, 0.5),
-            thickness=uniform(0.01, 0.02),
-            surface=surface,
+            rounded_buffer=rounded_buffer,
+            thickness=thickness,
         )
 
     def apply_parameters(
         self, params: RugParameters, *, spawn_scope: bool = True
     ) -> None:
         self.width = params.width
+        self._apply_internal_state(params)
         self.length = (
             params.width
-            if params.rug_shape == "circle"
+            if self.rug_shape == "circle"
             else params.width * params.length
         )
-        self.rug_shape = params.rug_shape
         self.rounded_buffer = params.rounded_buffer
         self.thickness = params.thickness
-        self.surface = params.surface
         self._use_fixed_spawn_draws = spawn_scope
 
     def build_shape(self):

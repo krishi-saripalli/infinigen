@@ -19,6 +19,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.tagging import tag_object
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util import blender as butil
 
 
@@ -586,9 +587,6 @@ def geometry_succulent_nodes(nw: NodeWrangler, **kwargs):
 
 
 class SucculentParameters(AssetParameters):
-    mode: Literal["thin_petal", "thick_petal"] = Field(
-        json_schema_extra={"editable": False}
-    )
     succulent_506: Annotated[
         float, Field(ge=-3.0, le=3.0, json_schema_extra={"editable": True})
     ] = 0.0
@@ -618,23 +616,6 @@ class SucculentParameters(AssetParameters):
     )
     material_bit: Annotated[int, Field(ge=0, le=2, json_schema_extra={"editable": True})] = 0
     num_bases: Annotated[int, Field(ge=5, le=7, json_schema_extra={"editable": True})] = 6
-    base_radius: list[float] = Field(
-        default_factory=list, json_schema_extra={"editable": False}
-    )
-    petal_x_R: list[float] = Field(
-        default_factory=list, json_schema_extra={"editable": False}
-    )
-    base_petal_num: list[int] = Field(
-        default_factory=list, json_schema_extra={"editable": False}
-    )
-    base_petal_scale: list[float] = Field(
-        default_factory=list, json_schema_extra={"editable": False}
-    )
-    base_z: list[float] = Field(default_factory=list, json_schema_extra={"editable": False})
-    petal_curve_param: list[float] = Field(
-        default_factory=list, json_schema_extra={"editable": False}
-    )
-    material: Any = Field(default=None, json_schema_extra={"editable": False})
 
 
 class SucculentFactory(ParameterizedAssetFactory, AssetFactory):
@@ -645,21 +626,31 @@ class SucculentFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> SucculentParameters:
-        mode = np.random.choice(["thin_petal", "thick_petal"], p=[0.65, 0.35])
-        return SucculentParameters(seed=seed, mode=mode)
+        with FixedSeed(seed):
+            self._mode = np.random.choice(["thin_petal", "thick_petal"], p=[0.65, 0.35])
+        return SucculentParameters(seed=seed)
 
     def _sample_spawn_parameters(
         self, params: SucculentParameters, seed: int, i: int
     ) -> SucculentParameters:
-        return params.model_copy(update=self._sample_geometry(params.mode))
+        self._spawn_geom = self._sample_geometry(self._mode)
+        editable = {
+            k: v
+            for k, v in self._spawn_geom.items()
+            if k in SucculentParameters.model_fields
+        }
+        return params.model_copy(update=editable)
 
     def apply_parameters(
         self, params: SucculentParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.mode = params.mode
+        if not hasattr(self, "_mode"):
+            with FixedSeed(params.seed):
+                self._mode = np.random.choice(["thin_petal", "thick_petal"], p=[0.65, 0.35])
+        self.mode = self._mode
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
-            self._geom = params
+            self._geom = getattr(self, "_spawn_geom", None)
 
     @staticmethod
     def _sample_geometry(mode: str) -> dict[str, Any]:
@@ -749,21 +740,21 @@ class SucculentFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _geometry_kwargs(self) -> dict[str, Any]:
         if self._use_fixed_spawn_draws:
-            p = self._geom
+            geom = self._geom
             return {
-                "cross_y_bottom": p.cross_y_bottom,
-                "cross_y_top": p.cross_y_top,
-                "cross_x": p.cross_x,
-                "num_bases": p.num_bases,
-                "base_radius": p.base_radius,
-                "petal_x_R": p.petal_x_R,
-                "base_petal_num": p.base_petal_num,
-                "base_petal_scale": p.base_petal_scale,
-                "base_z": p.base_z,
-                "petal_curve_param": p.petal_curve_param,
-                "material": p.material,
-                "petal_stem_curvature_scale": abs(p.succulent_506),
-                "petal_z_coutour_scale": p.succulent_509,
+                "cross_y_bottom": geom["cross_y_bottom"],
+                "cross_y_top": geom["cross_y_top"],
+                "cross_x": geom["cross_x"],
+                "num_bases": geom["num_bases"],
+                "base_radius": geom["base_radius"],
+                "petal_x_R": geom["petal_x_R"],
+                "base_petal_num": geom["base_petal_num"],
+                "base_petal_scale": geom["base_petal_scale"],
+                "base_z": geom["base_z"],
+                "petal_curve_param": geom["petal_curve_param"],
+                "material": geom["material"],
+                "petal_stem_curvature_scale": abs(geom["succulent_506"]),
+                "petal_z_coutour_scale": geom["succulent_509"],
             }
         geom = self._sample_geometry(self.mode)
         return {

@@ -155,7 +155,7 @@ class PlantContainerFactory(ParameterizedAssetFactory, AssetFactory):
         return obj
 
 
-class LargePlantContainerParameters(LegacyBridgeParameters):
+class LargePlantContainerParameters(AssetParameters):
     pass
 
 
@@ -173,7 +173,7 @@ def _large_plant_container_legacy_init(
 
 
 class LargePlantContainerFactory(PlantContainerFactory):
-    parameters_model: ClassVar[type[LegacyBridgeParameters]] = (
+    parameters_model: ClassVar[type[AssetParameters]] = (
         LargePlantContainerParameters
     )
     plant_factories = [MonocotFactory]
@@ -183,15 +183,11 @@ class LargePlantContainerFactory(PlantContainerFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> LargePlantContainerParameters:
-        return legacy_init_to_parameters(
-            LargePlantContainerParameters,
-            LargePlantContainerFactory,
-            seed,
-            self.coarse,
-            init_fn=_large_plant_container_legacy_init,
-        )
+        return LargePlantContainerParameters(seed=seed)
 
     def apply_parameters(
         self, params: LargePlantContainerParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _large_plant_container_legacy_init(self, params.seed, self.coarse)
+        self._use_fixed_spawn_draws = spawn_scope

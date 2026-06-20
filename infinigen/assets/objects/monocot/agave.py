@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -54,7 +54,6 @@ class AgaveMonocotParameters(AssetParameters):
     leaf_prob: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": True})]
     z_scale: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
     base_hue: Annotated[float, Field(ge=0.12, le=0.32, json_schema_extra={"editable": True})]
-    material: Any = Field(json_schema_extra={"editable": False})
 
 
 class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -77,7 +76,7 @@ class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             uniform(0.8, 1.0),
             log_uniform(0.05, 0.2),
         )
-        material = shaderfunc_to_material(
+        self.material = shaderfunc_to_material(
             self.shader_monocot, dark_color, bright_color, self.use_distance
         )
         return AgaveMonocotParameters(
@@ -96,7 +95,6 @@ class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             leaf_prob=leaf_prob,
             z_scale=z_scale,
             base_hue=base_hue,
-            material=material,
         )
 
     def apply_parameters(
@@ -117,7 +115,6 @@ class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         self.cut_prob = params.cut_prob
         self.leaf_prob = params.leaf_prob
         self.z_scale = params.z_scale
-        self.material = params.material
         self.radius = 0.01
         self.leaf_range = (0, 1)
         self.perturb = 0.05

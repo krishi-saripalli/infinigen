@@ -457,9 +457,6 @@ class BasketBaseParameters(AssetParameters):
     thickness: Annotated[
         float, Field(ge=0.001, le=0.005, json_schema_extra={"editable": True})
     ]
-    frame_sub_level: int = Field(json_schema_extra={"editable": False})
-    has_handle: bool = Field(json_schema_extra={"editable": False})
-    handle_sub_level: int = Field(json_schema_extra={"editable": False})
     handle_depth: Annotated[
         float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
     ]
@@ -469,7 +466,6 @@ class BasketBaseParameters(AssetParameters):
     handle_dist_to_top: Annotated[
         float, Field(ge=0.08, le=0.15, json_schema_extra={"editable": True})
     ]
-    has_holes: bool = Field(json_schema_extra={"editable": False})
     hole_size: Annotated[
         float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
     ]
@@ -518,24 +514,42 @@ class BasketBaseFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> BasketBaseParameters:
         values = self._sample_basket_values()
+        self._basket_runtime = {
+            "frame_sub_level": values.pop("frame_sub_level"),
+            "has_handle": values.pop("has_handle"),
+            "handle_sub_level": values.pop("handle_sub_level"),
+            "has_holes": values.pop("has_holes"),
+        }
         return BasketBaseParameters(seed=seed, **values)
 
     def apply_parameters(
         self, params: BasketBaseParameters, *, spawn_scope: bool = True
     ) -> None:
+        runtime = getattr(self, "_basket_runtime", {})
         self._asset_params = {
             "depth": params.depth,
             "width": params.width,
             "height": params.height,
             "thickness": params.thickness,
-            "frame_sub_level": params.frame_sub_level,
-            "has_handle": params.has_handle,
-            "handle_sub_level": params.handle_sub_level,
+            "frame_sub_level": runtime.get(
+                "frame_sub_level", int(np.random.choice([0, 3], p=[0.5, 0.5]))
+            ),
+            "has_handle": runtime.get(
+                "has_handle", bool(np.random.choice([True, False], p=[0.8, 0.2]))
+            ),
+            "handle_sub_level": runtime.get(
+                "handle_sub_level", int(np.random.choice([0, 1, 2], p=[0.2, 0.4, 0.4]))
+            ),
             "handle_depth": params.depth * params.handle_depth,
             "handle_height": params.height * params.handle_height,
             "handle_dist_to_top": params.height * params.handle_height * 0.5
             + params.height * params.handle_dist_to_top,
-            "has_holes": params.has_holes,
+            "has_holes": runtime.get(
+                "has_holes",
+                False
+                if params.height < 0.12
+                else bool(np.random.choice([True, False], p=[0.5, 0.5])),
+            ),
             "hole_size": params.hole_size,
             "hole_gap_size": params.hole_size * params.hole_gap_size,
             "hole_edge_gap": params.hole_edge_gap,

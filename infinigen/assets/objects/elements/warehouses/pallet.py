@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -37,7 +37,6 @@ class PalletParameters(AssetParameters):
         float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})
     ]
     height: Annotated[float, Field(ge=0.2, le=0.25, json_schema_extra={"editable": True})]
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class PalletFactory(ParameterizedAssetFactory, AssetFactory):
@@ -48,6 +47,7 @@ class PalletFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> PalletParameters:
+        self.surface = wood.Wood()()
         return PalletParameters(
             seed=seed,
             depth=uniform(1.2, 1.4),
@@ -56,7 +56,6 @@ class PalletFactory(ParameterizedAssetFactory, AssetFactory):
             tile_width=uniform(0.06, 0.1),
             tile_slackness=uniform(1.5, 2),
             height=uniform(0.2, 0.25),
-            surface=wood.Wood()(),
         )
 
     def apply_parameters(
@@ -68,7 +67,6 @@ class PalletFactory(ParameterizedAssetFactory, AssetFactory):
         self.tile_width = params.tile_width
         self.tile_slackness = params.tile_slackness
         self.height = params.height
-        self.surface = params.surface
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:

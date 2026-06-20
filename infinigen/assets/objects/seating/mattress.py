@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import bmesh
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -94,14 +94,12 @@ class MattressParameters(AssetParameters):
     dot_depth: Annotated[
         float, Field(ge=0.04, le=0.08, json_schema_extra={"editable": True})
     ]
-    type: Literal["coiled", "wrapped"] = Field(json_schema_extra={"editable": False})
     coiled_smooth_draw: Annotated[
         float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})
     ] = 0.75
     wrapped_pressure: Annotated[
         float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})
     ] = 0.15
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class MattressFactory(ParameterizedAssetFactory, AssetFactory):
@@ -115,6 +113,8 @@ class MattressFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> MattressParameters:
         surface_gen_class = weighted_sample(material_assignments.fabrics)
+        self.type = rg(self.types)
+        self.surface = surface_gen_class()()
         return MattressParameters(
             seed=seed,
             width=log_uniform(0.9, 2.0),
@@ -123,8 +123,6 @@ class MattressFactory(ParameterizedAssetFactory, AssetFactory):
             dot_distance=log_uniform(0.16, 0.2),
             dot_size=uniform(0.005, 0.02),
             dot_depth=uniform(0.04, 0.08),
-            type=rg(self.types),
-            surface=surface_gen_class()(),
         )
 
     def _sample_spawn_parameters(
@@ -146,8 +144,6 @@ class MattressFactory(ParameterizedAssetFactory, AssetFactory):
         self.dot_distance = params.dot_distance
         self.dot_size = params.dot_size
         self.dot_depth = params.dot_depth
-        self.type = params.type
-        self.surface = params.surface
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.coiled_smooth_draw = params.coiled_smooth_draw

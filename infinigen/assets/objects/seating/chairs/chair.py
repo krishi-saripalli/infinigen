@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -61,9 +61,6 @@ class ChairParameters(AssetParameters):
     is_leg_round_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    leg_type: Literal["vertical", "straight", "up-curved", "down-curved"] = Field(
-        json_schema_extra={"editable": False}
-    )
     has_leg_x_bar_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
@@ -81,12 +78,7 @@ class ChairParameters(AssetParameters):
     arm_height: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})]
     arm_y: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})]
     arm_z: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})]
-    arm_mid: tuple[float, float, float] = Field(json_schema_extra={"editable": False})
-    arm_profile: tuple[float, float] = Field(json_schema_extra={"editable": False})
     back_thickness: Annotated[float, Field(ge=0.04, le=0.05, json_schema_extra={"editable": True})]
-    back_type: Literal["whole", "partial", "horizontal-bar", "vertical-bar"] = Field(
-        json_schema_extra={"editable": False}
-    )
     back_vertical_cuts: Annotated[int, Field(ge=1, le=3, json_schema_extra={"editable": True})]
     back_partial_scale: Annotated[float, Field(ge=1.0, le=1.4, json_schema_extra={"editable": True})]
     panel_surface_same_draw: Annotated[
@@ -94,28 +86,12 @@ class ChairParameters(AssetParameters):
     ]
     scratch_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
     edge_wear_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    leg_x_offset: float = Field(default=0.0, json_schema_extra={"editable": False})
-    leg_y_offset: tuple[float, float] = Field(
-        default=(0.0, 0.0), json_schema_extra={"editable": False}
-    )
-    back_x_offset: float = Field(default=0.0, json_schema_extra={"editable": False})
-    back_y_offset: float = Field(default=0.0, json_schema_extra={"editable": False})
-    back_profile: tuple[tuple[float, float], ...] = Field(
-        default=((0.0, 1.0),), json_schema_extra={"editable": False}
-    )
     smoothness: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})] = (
         0.0
     )
     profile_shape_factor: Annotated[
         float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": True})
     ] = 0.0
-    leg_x_bar_z_frac: float = Field(default=0.5, json_schema_extra={"editable": False})
-    leg_y_bar_z_frac: float = Field(default=0.5, json_schema_extra={"editable": False})
-    limb_surface: Any = Field(json_schema_extra={"editable": False})
-    surface: Any = Field(json_schema_extra={"editable": False})
-    panel_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class ChairFactory(ParameterizedAssetFactory, AssetFactory):
@@ -133,6 +109,43 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _resolve_chair_internals(self, seed: int) -> dict[str, Any]:
+        with FixedSeed(seed):
+            limb_surface_gen_class = weighted_sample(material_assignments.furniture_leg)
+            limb_surface_material_gen = limb_surface_gen_class()
+            surface_gen_class = weighted_sample(
+                material_assignments.furniture_hard_surface
+            )
+            surface_material_gen = surface_gen_class()
+            surface_mat = surface_material_gen()
+            panel_surface_same_draw = uniform()
+            panel_surface = (
+                surface_mat
+                if panel_surface_same_draw < 0.3
+                else weighted_sample(material_assignments.furniture_hard_surface)()()
+            )
+            scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+            scratch_fn, edge_wear_fn = material_assignments.wear_tear
+            return {
+                "leg_type": np.random.choice(
+                    ["vertical", "straight", "up-curved", "down-curved"]
+                ),
+                "arm_mid": (
+                    uniform(-0.03, 0.03),
+                    uniform(-0.03, 0.09),
+                    uniform(-0.09, 0.03),
+                ),
+                "arm_profile": tuple(log_uniform(0.1, 3, 2)),
+                "back_type": rg(self.back_types),
+                "limb_surface": limb_surface_material_gen(),
+                "surface": surface_mat,
+                "panel_surface": panel_surface,
+                "scratch_prob": scratch_prob,
+                "edge_wear_prob": edge_wear_prob,
+                "scratch_fn": scratch_fn,
+                "edge_wear_fn": edge_wear_fn,
+            }
+
     def _sample_init_parameters(self, seed: int) -> ChairParameters:
         width = uniform(0.4, 0.5)
         size = uniform(0.38, 0.45)
@@ -143,18 +156,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         seat_mid_x = uniform(seat_back + seat_mid * (1 - seat_back), 1)
         back_height = uniform(0.4, 0.5)
         arm_thickness = uniform(0.04, 0.06)
-        limb_surface_gen_class = weighted_sample(material_assignments.furniture_leg)
-        limb_surface_material_gen = limb_surface_gen_class()
-        surface_gen_class = weighted_sample(material_assignments.furniture_hard_surface)
-        surface_material_gen = surface_gen_class()
-        surface_mat = surface_material_gen()
-        panel_surface_same_draw = uniform()
-        if panel_surface_same_draw < 0.3:
-            panel_surface = surface_mat
-        else:
-            panel_surface = weighted_sample(material_assignments.furniture_hard_surface)()()
-        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-        scratch_fn, edge_wear_fn = material_assignments.wear_tear
         scratch_draw = uniform()
         edge_wear_draw = uniform()
         return ChairParameters(
@@ -175,9 +176,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
             leg_height=uniform(0.45, 0.5),
             back_height=back_height,
             is_leg_round_draw=uniform(),
-            leg_type=np.random.choice(
-                ["vertical", "straight", "up-curved", "down-curved"]
-            ),
             has_leg_x_bar_draw=uniform(),
             has_leg_y_bar_draw=uniform(),
             leg_offset_bar_low=uniform(0.2, 0.4),
@@ -187,36 +185,28 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
             arm_height=uniform(0.6, 1.0),
             arm_y=uniform(0.8, 1.0),
             arm_z=uniform(0.3, 0.6),
-            arm_mid=(
-                uniform(-0.03, 0.03),
-                uniform(-0.03, 0.09),
-                uniform(-0.09, 0.03),
-            ),
-            arm_profile=tuple(log_uniform(0.1, 3, 2)),
             back_thickness=uniform(0.04, 0.05),
-            back_type=rg(self.back_types),
             back_vertical_cuts=int(np.random.randint(1, 4)),
             back_partial_scale=uniform(1, 1.4),
-            panel_surface_same_draw=panel_surface_same_draw,
+            panel_surface_same_draw=uniform(),
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
-            limb_surface=limb_surface_material_gen(),
-            surface=surface_mat,
-            panel_surface=panel_surface,
-            scratch=None if scratch_draw > scratch_prob else scratch_fn(),
-            edge_wear=None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
         )
 
     def _sample_spawn_parameters(
         self, params: ChairParameters, seed: int, i: int
     ) -> ChairParameters:
         leg_offset_bar = (params.leg_offset_bar_low, params.leg_offset_bar_high)
+        with FixedSeed(seed):
+            spawn_internals = {
+                "leg_x_bar_z_frac": uniform(*leg_offset_bar),
+                "leg_y_bar_z_frac": uniform(*leg_offset_bar),
+            }
+        self._spawn_internals = spawn_internals
         return params.model_copy(
             update={
                 "smoothness": uniform(0, 1),
                 "profile_shape_factor": uniform(0, 0.4),
-                "leg_x_bar_z_frac": uniform(*leg_offset_bar),
-                "leg_y_bar_z_frac": uniform(*leg_offset_bar),
             }
         )
 
@@ -230,19 +220,12 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.apply_parameters(params, spawn_scope=False)
         with FixedSeed(params.seed):
             self.post_init()
-        return params.model_copy(
-            update={
-                "leg_x_offset": self.leg_x_offset,
-                "leg_y_offset": self.leg_y_offset,
-                "back_x_offset": self.back_x_offset,
-                "back_y_offset": self.back_y_offset,
-                "back_profile": self.back_profile,
-            }
-        )
+        return params
 
     def apply_parameters(
         self, params: ChairParameters, *, spawn_scope: bool = True
     ) -> None:
+        internals = self._resolve_chair_internals(params.seed)
         self.width = params.width
         self.size = params.size
         self.thickness = params.thickness
@@ -259,11 +242,11 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.leg_height = params.leg_height
         self.back_height = params.back_height
         self.is_leg_round = params.is_leg_round_draw < 0.5
-        self.leg_type = params.leg_type
-        self.leg_x_offset = params.leg_x_offset
-        self.leg_y_offset = params.leg_y_offset
-        self.back_x_offset = params.back_x_offset
-        self.back_y_offset = params.back_y_offset
+        self.leg_type = internals["leg_type"]
+        self.leg_x_offset = 0.0
+        self.leg_y_offset = (0.0, 0.0)
+        self.back_x_offset = 0.0
+        self.back_y_offset = 0.0
         self.has_leg_x_bar = params.has_leg_x_bar_draw < 0.6
         self.has_leg_y_bar = params.has_leg_y_bar_draw < 0.6
         self.leg_offset_bar = (params.leg_offset_bar_low, params.leg_offset_bar_high)
@@ -272,25 +255,43 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.arm_height = params.arm_thickness * params.arm_height
         self.arm_y = params.arm_y * self.size
         self.arm_z = params.arm_z * self.back_height
-        self.arm_mid = np.array(params.arm_mid)
-        self.arm_profile = np.array(params.arm_profile)
+        self.arm_mid = np.array(internals["arm_mid"])
+        self.arm_profile = np.array(internals["arm_profile"])
         self.back_thickness = params.back_thickness
-        self.back_type = params.back_type
-        self.back_profile = list(params.back_profile)
+        self.back_type = internals["back_type"]
+        self.back_profile = [(0.0, 1.0)]
         self.back_vertical_cuts = params.back_vertical_cuts
         self.back_partial_scale = params.back_partial_scale
-        self.limb_surface = params.limb_surface
-        self.surface = params.surface
-        self.panel_surface = params.panel_surface
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self.limb_surface = internals["limb_surface"]
+        self.surface = internals["surface"]
+        self.panel_surface = internals["panel_surface"]
+        self.scratch = (
+            None
+            if params.scratch_draw > internals["scratch_prob"]
+            else internals["scratch_fn"]()
+        )
+        self.edge_wear = (
+            None
+            if params.edge_wear_draw > internals["edge_wear_prob"]
+            else internals["edge_wear_fn"]()
+        )
         self.clothes_scatter = NoApply()
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.smoothness = params.smoothness
             self.profile_shape_factor = params.profile_shape_factor
-            self.leg_x_bar_z_frac = params.leg_x_bar_z_frac
-            self.leg_y_bar_z_frac = params.leg_y_bar_z_frac
+            spawn_internals = getattr(self, "_spawn_internals", None)
+            if spawn_internals is not None:
+                self.leg_x_bar_z_frac = spawn_internals["leg_x_bar_z_frac"]
+                self.leg_y_bar_z_frac = spawn_internals["leg_y_bar_z_frac"]
+            else:
+                leg_offset_bar = (
+                    params.leg_offset_bar_low,
+                    params.leg_offset_bar_high,
+                )
+                with FixedSeed(params.seed):
+                    self.leg_x_bar_z_frac = uniform(*leg_offset_bar)
+                    self.leg_y_bar_z_frac = uniform(*leg_offset_bar)
 
     def generate(self, params: ChairParameters, i: int | None = None, **kwargs: Any):
         params = self._materialize_post_init(params)

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Annotated, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -21,6 +21,7 @@ from infinigen.assets.utils.decorate import decimate, read_co, subsurf
 from infinigen.assets.utils.object import obj2trimesh
 from infinigen.core import surface
 from infinigen.core.placement.parameters import AssetParameters
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.random import log_uniform, weighted_sample
@@ -43,9 +44,6 @@ class BedParameters(ChairParameters):
     has_all_legs_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    leg_decor_type: Literal["coiled", "pad", "plain", "legs"] = Field(
-        json_schema_extra={"editable": False}
-    )
     leg_decor_wrapped_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
@@ -70,18 +68,12 @@ class BedParameters(ChairParameters):
     panel_margin: Annotated[
         float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
     ]
-    sheet_type: Literal["quilt", "comforter", "box_comforter", "none"] = Field(
-        json_schema_extra={"editable": False}
-    )
     sheet_folded_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
     has_cover_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    mattress_type: Literal["coiled", "wrapped"] = Field(
-        json_schema_extra={"editable": False}
-    )
     mattress_width_scale: Annotated[
         float, Field(ge=0.88, le=0.96, json_schema_extra={"editable": True})
     ]
@@ -112,35 +104,16 @@ class BedParameters(ChairParameters):
     cover_size_scale: Annotated[
         float, Field(ge=0.3, le=0.4, json_schema_extra={"editable": True})
     ]
-    back_type: Literal[
-        "coiled", "pad", "whole", "partial", "horizontal-bar", "vertical-bar"
-    ] = Field(json_schema_extra={"editable": False})
     n_pillows: Annotated[int, Field(ge=2, le=3, json_schema_extra={"editable": True})] = (
         2
     )
     n_towels: Annotated[int, Field(ge=1, le=1, json_schema_extra={"editable": True})] = 1
-    pillow_scatter_x: tuple[float, ...] = Field(
-        default=(), json_schema_extra={"editable": False}
-    )
-    pillow_scatter_y: tuple[float, ...] = Field(
-        default=(), json_schema_extra={"editable": False}
-    )
-    towel_scatter_x: tuple[float, ...] = Field(
-        default=(), json_schema_extra={"editable": False}
-    )
-    towel_scatter_y: tuple[float, ...] = Field(
-        default=(), json_schema_extra={"editable": False}
-    )
-    sheet_pressure: float = Field(default=0.0, json_schema_extra={"editable": False})
     sheet_location_offset: Annotated[
         float, Field(ge=0.0, le=0.15, json_schema_extra={"editable": True})
     ] = 0.0
     cover_location_offset: Annotated[
         float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": True})
     ] = 0.0
-    pillow_rotations: tuple[float, ...] = Field(
-        default=(), json_schema_extra={"editable": False}
-    )
 
 
 class BedFactory(bedframe.BedFrameFactory):
@@ -159,12 +132,26 @@ class BedFactory(bedframe.BedFrameFactory):
         super(bedframe.BedFrameFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _resolve_bed_internals(self, seed: int) -> dict[str, Any]:
+        with FixedSeed(seed):
+            scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+            scratch_fn, edge_wear_fn = material_assignments.wear_tear
+            scratch_draw = uniform()
+            edge_wear_draw = uniform()
+            return {
+                "sheet_type": rg(self.sheet_types),
+                "mattress_type": rg(self.mattress_types),
+                "back_type": rg(bedframe.BedFrameFactory.back_types),
+                "leg_decor_type": rg(bedframe.BedFrameFactory.leg_decor_types),
+                "scratch_draw": scratch_draw,
+                "edge_wear_draw": edge_wear_draw,
+                "scratch": None if scratch_draw > scratch_prob else scratch_fn(),
+                "edge_wear": None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
+            }
+
     def _sample_init_parameters(self, seed: int) -> BedParameters:
-        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-        scratch_fn, edge_wear_fn = material_assignments.wear_tear
-        scratch_draw = uniform()
-        edge_wear_draw = uniform()
-        sheet_type = rg(self.sheet_types)
+        internals = self._resolve_bed_internals(seed)
+        sheet_type = internals["sheet_type"]
         return BedParameters(
             seed=seed,
             width=log_uniform(1.4, 2.4),
@@ -183,7 +170,6 @@ class BedFactory(bedframe.BedFrameFactory):
             leg_height=uniform(0.2, 0.6),
             back_height=uniform(0.5, 1.3),
             is_leg_round_draw=1.0,
-            leg_type="vertical",
             has_leg_x_bar_draw=1.0,
             has_leg_y_bar_draw=1.0,
             leg_offset_bar_low=0.2,
@@ -193,22 +179,13 @@ class BedFactory(bedframe.BedFrameFactory):
             arm_height=0.8,
             arm_y=0.9,
             arm_z=0.45,
-            arm_mid=(0.0, 0.0, 0.0),
-            arm_profile=(1.0, 1.0),
             back_thickness=0.045,
-            back_type=rg(bedframe.BedFrameFactory.back_types),
             back_vertical_cuts=2,
             back_partial_scale=1.2,
             panel_surface_same_draw=0.0,
-            scratch_draw=scratch_draw,
-            edge_wear_draw=edge_wear_draw,
-            limb_surface=weighted_sample(material_assignments.furniture_hard_surface)()(),
-            surface=weighted_sample(material_assignments.bedframe)()(),
-            panel_surface=weighted_sample(material_assignments.furniture_hard_surface)()(),
-            scratch=None if scratch_draw > scratch_prob else scratch_fn(),
-            edge_wear=None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
+            scratch_draw=internals["scratch_draw"],
+            edge_wear_draw=internals["edge_wear_draw"],
             has_all_legs_draw=uniform(),
-            leg_decor_type=rg(bedframe.BedFrameFactory.leg_decor_types),
             leg_decor_wrapped_draw=uniform(),
             seat_subdivisions_x=int(np.random.randint(1, 4)),
             seat_subdivisions_y=int(log_uniform(4, 10)),
@@ -217,10 +194,8 @@ class BedFactory(bedframe.BedFrameFactory):
             dot_depth=uniform(0.04, 0.08),
             panel_distance=uniform(0.3, 0.5),
             panel_margin=uniform(0.01, 0.02),
-            sheet_type=sheet_type,
             sheet_folded_draw=uniform(),
             has_cover_draw=uniform(),
-            mattress_type=rg(self.mattress_types),
             mattress_width_scale=uniform(0.88, 0.96),
             mattress_size_scale=uniform(0.88, 0.96),
             quilt_width_scale=uniform(1.4, 1.6),
@@ -236,35 +211,50 @@ class BedFactory(bedframe.BedFrameFactory):
     def _sample_spawn_parameters(
         self, params: BedParameters, seed: int, i: int
     ) -> BedParameters:
+        internals = self._resolve_bed_internals(params.seed)
         n_pillows = int(np.random.randint(2, 4))
+        sheet_type = internals["sheet_type"]
         sheet_pressure = (
             0.0
-            if params.sheet_type == "quilt"
+            if sheet_type == "quilt"
             else uniform(1.0, 1.5)
-            if params.sheet_type == "comforter"
+            if sheet_type == "comforter"
             else log_uniform(8, 15)
         )
+        self._bed_spawn_internals = {
+            "pillow_scatter_x": tuple(uniform(0.1, 0.4, 10)),
+            "pillow_scatter_y": tuple(uniform(-0.3, 0.3, 10)),
+            "towel_scatter_x": tuple(uniform(0.5, 0.8, 10)),
+            "towel_scatter_y": tuple(uniform(-0.3, 0.3, 10)),
+            "sheet_pressure": sheet_pressure,
+            "pillow_rotations": tuple(uniform(0, np.pi, n_pillows)),
+        }
         return params.model_copy(
             update={
                 "n_pillows": n_pillows,
                 "n_towels": 1,
-                "pillow_scatter_x": tuple(uniform(0.1, 0.4, 10)),
-                "pillow_scatter_y": tuple(uniform(-0.3, 0.3, 10)),
-                "towel_scatter_x": tuple(uniform(0.5, 0.8, 10)),
-                "towel_scatter_y": tuple(uniform(-0.3, 0.3, 10)),
-                "sheet_pressure": sheet_pressure,
                 "sheet_location_offset": uniform(0, 0.15),
                 "cover_location_offset": uniform(0, 0.3),
-                "pillow_rotations": tuple(uniform(0, np.pi, n_pillows)),
             }
         )
 
     def apply_parameters(
         self, params: BedParameters, *, spawn_scope: bool = True
     ) -> None:
+        internals = self._resolve_bed_internals(params.seed)
+        with FixedSeed(params.seed):
+            self.limb_surface = weighted_sample(
+                material_assignments.furniture_hard_surface
+            )()()
+            self.surface = weighted_sample(material_assignments.bedframe)()()
+            self.panel_surface = weighted_sample(
+                material_assignments.furniture_hard_surface
+            )()()
+        self.scratch = internals["scratch"]
+        self.edge_wear = internals["edge_wear"]
         super().apply_parameters(params, spawn_scope=False)
         self.has_all_legs = params.has_all_legs_draw < 0.2
-        self.leg_decor_type = params.leg_decor_type
+        self.leg_decor_type = internals["leg_decor_type"]
         self.leg_decor_wrapped = params.leg_decor_wrapped_draw < 0.5
         self.seat_subdivisions_x = params.seat_subdivisions_x
         self.seat_subdivisions_y = params.seat_subdivisions_y
@@ -275,16 +265,17 @@ class BedFactory(bedframe.BedFrameFactory):
         self.back_x_offset = 0
         self.back_y_offset = 0
         self.seat_back = 1
+        self.back_type = internals["back_type"]
         self.clothes_scatter = surface.NoApply
         self.dot_distance = params.dot_distance
         self.dot_size = params.dot_size
         self.dot_depth = params.dot_depth
         self.panel_distance = params.panel_distance
         self.panel_margin = params.panel_margin
-        self.sheet_type = params.sheet_type
+        self.sheet_type = internals["sheet_type"]
         self.sheet_folded = params.sheet_folded_draw < 0.5
         self.has_cover = params.has_cover_draw < 0.5
-        self.mattress_type = params.mattress_type
+        self.mattress_type = internals["mattress_type"]
         self.mattress_width_scale = params.mattress_width_scale
         self.mattress_size_scale = params.mattress_size_scale
         self.quilt_width_scale = params.quilt_width_scale
@@ -299,14 +290,16 @@ class BedFactory(bedframe.BedFrameFactory):
         if spawn_scope:
             self.n_pillows = params.n_pillows
             self.n_towels = params.n_towels
-            self.pillow_scatter_x = params.pillow_scatter_x
-            self.pillow_scatter_y = params.pillow_scatter_y
-            self.towel_scatter_x = params.towel_scatter_x
-            self.towel_scatter_y = params.towel_scatter_y
-            self.sheet_pressure = params.sheet_pressure
+            spawn = getattr(self, "_bed_spawn_internals", None)
+            if spawn is not None:
+                self.pillow_scatter_x = spawn["pillow_scatter_x"]
+                self.pillow_scatter_y = spawn["pillow_scatter_y"]
+                self.towel_scatter_x = spawn["towel_scatter_x"]
+                self.towel_scatter_y = spawn["towel_scatter_y"]
+                self.sheet_pressure = spawn["sheet_pressure"]
+                self.pillow_rotations = spawn["pillow_rotations"]
             self.sheet_location_offset = params.sheet_location_offset
             self.cover_location_offset = params.cover_location_offset
-            self.pillow_rotations = params.pillow_rotations
 
     @cached_property
     def mattress_factory(self):

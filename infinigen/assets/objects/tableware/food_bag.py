@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bmesh
 import bpy
@@ -28,6 +28,7 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
@@ -42,10 +43,6 @@ class FoodBagParameters(AssetParameters):
     texture_shared_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    width: float = Field(json_schema_extra={"editable": False})
-    depth: float = Field(json_schema_extra={"editable": False})
-    curve_profile: float = Field(json_schema_extra={"editable": False})
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class FoodBagFactory(ParameterizedAssetFactory, AssetFactory):
@@ -69,34 +66,31 @@ class FoodBagFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_init_parameters(self, seed: int) -> FoodBagParameters:
         length = uniform(0.1, 0.3)
         is_packet_draw = uniform()
-        is_packet = is_packet_draw < 0.6
-        width, depth, curve_profile = self._sample_shape(length, is_packet)
-        surface = weighted_sample(material_assignments.graphicdesign)()()
-        if surface == text.Text:
-            surface = surface(seed)
         return FoodBagParameters(
             seed=seed,
             length=length,
             is_packet_draw=is_packet_draw,
             extrude_length=uniform(0.05, 0.1),
             texture_shared_draw=uniform(),
-            width=width,
-            depth=depth,
-            curve_profile=curve_profile,
-            surface=surface,
         )
 
     def apply_parameters(
         self, params: FoodBagParameters, *, spawn_scope: bool = True
     ) -> None:
+        is_packet = params.is_packet_draw < 0.6
+        with FixedSeed(params.seed):
+            width, depth, curve_profile = self._sample_shape(params.length, is_packet)
+            surface_mat = weighted_sample(material_assignments.graphicdesign)()()
+            if surface_mat == text.Text:
+                surface_mat = surface_mat(params.seed)
         self.length = params.length
-        self.is_packet = params.is_packet_draw < 0.6
-        self.width = params.width
-        self.depth = params.depth
-        self.curve_profile = params.curve_profile
+        self.is_packet = is_packet
+        self.width = width
+        self.depth = depth
+        self.curve_profile = curve_profile
         self.extrude_length = params.extrude_length
         self.texture_shared = params.texture_shared_draw < 0.2
-        self.surface = params.surface
+        self.surface = surface_mat
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

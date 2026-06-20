@@ -17,6 +17,7 @@ from infinigen.assets.utils.object import join_objects, new_base_cylinder, new_c
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
@@ -32,9 +33,6 @@ class HardwareParameters(AssetParameters):
     is_circular_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    hardware_type: Literal["hook", "holder", "bar", "ring"] = Field(
-        json_schema_extra={"editable": False}
-    )
     hook_length: Annotated[float, Field(ge=2.0, le=4.0, json_schema_extra={"editable": True})]
     holder_length: Annotated[
         float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": True})
@@ -53,9 +51,6 @@ class HardwareParameters(AssetParameters):
     ring_minor_scale: Annotated[
         float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": True})
     ] = 0.55
-    surface_material_gen: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
@@ -65,10 +60,40 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
         super(HardwareFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> HardwareParameters:
-        attachment_radius = uniform(0.02, 0.03)
+    def _resolve_init_state(
+        self, params: HardwareParameters
+    ) -> tuple[str, Any, Any | None, Any | None]:
+        with FixedSeed(params.seed):
+            uniform(0.02, 0.03)
+            uniform()
+            uniform()
+            uniform(0.01, 0.015)
+            uniform(0.01, 0.015)
+            uniform(0.06, 0.1)
+            uniform()
+            hardware_type = np.random.choice(["hook", "holder", "bar", "ring"])
+            uniform(2, 4)
+            uniform(0.15, 0.25)
+            uniform(0.4, 0.8)
+            uniform(2, 3)
+            log_uniform(2, 6)
+            surface_material_gen = weighted_sample(material_assignments.metal_neutral)()
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        scratch = (
+            None
+            if params.scratch_draw > scratch_prob
+            else scratch_fn()
+        )
+        edge_wear = (
+            None
+            if params.edge_wear_draw > edge_wear_prob
+            else edge_wear_fn()
+        )
+        return hardware_type, surface_material_gen, scratch, edge_wear
+
+    def _sample_init_parameters(self, seed: int) -> HardwareParameters:
+        attachment_radius = uniform(0.02, 0.03)
         scratch_draw = uniform()
         edge_wear_draw = uniform()
         return HardwareParameters(
@@ -78,7 +103,6 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             radius=uniform(0.01, 0.015),
             depth=uniform(0.06, 0.1),
             is_circular_draw=uniform(),
-            hardware_type=np.random.choice(["hook", "holder", "bar", "ring"]),
             hook_length=uniform(2, 4),
             holder_length=uniform(0.15, 0.25),
             bar_length=uniform(0.4, 0.8),
@@ -86,9 +110,6 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             ring_radius=log_uniform(2, 6),
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
-            surface_material_gen=weighted_sample(material_assignments.metal_neutral)(),
-            scratch=None if scratch_draw > scratch_prob else scratch_fn(),
-            edge_wear=None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
         )
 
     def _sample_spawn_parameters(
@@ -99,21 +120,24 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: HardwareParameters, *, spawn_scope: bool = True
     ) -> None:
+        hardware_type, surface_material_gen, scratch, edge_wear = (
+            self._resolve_init_state(params)
+        )
         self.attachment_radius = params.attachment_radius
         self.attachment_depth = params.attachment_depth
         self.radius = params.radius
         self.depth = params.depth
         self.is_circular = params.is_circular_draw < 0.5
-        self.hardware_type = params.hardware_type
+        self.hardware_type = hardware_type
         self.hook_length = params.attachment_radius * params.hook_length
         self.holder_length = params.holder_length
         self.bar_length = params.bar_length
         self.extension_length = params.attachment_radius * params.extension_length
         self.ring_radius = params.ring_radius * params.attachment_radius
         self.ring_minor_scale = params.ring_minor_scale
-        self.surface_material_gen = params.surface_material_gen
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self.surface_material_gen = surface_material_gen
+        self.scratch = scratch
+        self.edge_wear = edge_wear
         self._use_fixed_spawn_draws = spawn_scope
 
     def make_attachment(self):

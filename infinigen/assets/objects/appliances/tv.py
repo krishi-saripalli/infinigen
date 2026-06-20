@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import bmesh
 import bpy
@@ -50,7 +50,6 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class TVParameters(AssetParameters):
-    aspect_ratio: float = Field(json_schema_extra={"editable": False})
     width: Annotated[float, Field(ge=0.6, le=2.1, json_schema_extra={"editable": True})]
     screen_bevel_width: Annotated[
         float, Field(ge=0.0, le=0.01, json_schema_extra={"editable": True})
@@ -66,9 +65,6 @@ class TVParameters(AssetParameters):
     depth_extrude_multiplier: Annotated[
         float, Field(ge=2.0, le=5.0, json_schema_extra={"editable": True})
     ]
-    leg_type: Literal["two-legged", "single-legged"] = Field(
-        json_schema_extra={"editable": False}
-    )
     leg_length: Annotated[float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})]
     leg_length_y: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
     leg_radius: Annotated[float, Field(ge=0.008, le=0.015, json_schema_extra={"editable": True})]
@@ -97,10 +93,6 @@ class TVParameters(AssetParameters):
     width_1: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})] = (
         0.45
     )
-    surface: Any = Field(json_schema_extra={"editable": False})
-    support_surface: Any = Field(json_schema_extra={"editable": False})
-    screen_surface: Any = Field(json_schema_extra={"editable": False})
-    screen_emission: float = Field(json_schema_extra={"editable": False})
 
 
 class TVFactory(ParameterizedAssetFactory, AssetFactory):
@@ -117,9 +109,14 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
         screen_emission = 0.01
         if isinstance(screen_surface, Text):
             screen_emission = 0.01 if uniform() < 0.1 else uniform(2, 3)
+        self._aspect_ratio = float(np.random.choice([9 / 16, 3 / 4]))
+        self._leg_type = np.random.choice(["two-legged", "single-legged"])
+        self._surface = weighted_sample(material_assignments.metal_neutral)()
+        self._support_surface = weighted_sample(material_assignments.metal_neutral)()
+        self._screen_surface = screen_surface
+        self._screen_emission = screen_emission
         return TVParameters(
             seed=seed,
-            aspect_ratio=float(np.random.choice([9 / 16, 3 / 4])),
             width=uniform(0.6, 2.1),
             screen_bevel_width=uniform(0, 0.01),
             side_margin=log_uniform(0.005, 0.01),
@@ -127,16 +124,11 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             depth=depth,
             has_depth_extrude_draw=has_depth_extrude_draw,
             depth_extrude_multiplier=uniform(2, 5),
-            leg_type=np.random.choice(["two-legged", "single-legged"]),
             leg_length=uniform(0.1, 0.2),
             leg_length_y=uniform(0.1, 0.15),
             leg_radius=uniform(0.008, 0.015),
             leg_width=uniform(0.5, 0.8),
             leg_bevel_width=uniform(0.01, 0.02),
-            surface=weighted_sample(material_assignments.metal_neutral)(),
-            support_surface=weighted_sample(material_assignments.metal_neutral)(),
-            screen_surface=screen_surface,
-            screen_emission=screen_emission,
         )
 
     def _sample_spawn_parameters(
@@ -157,7 +149,17 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: TVParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.aspect_ratio = params.aspect_ratio
+        if not hasattr(self, "_aspect_ratio"):
+            self._aspect_ratio = float(np.random.choice([9 / 16, 3 / 4]))
+            self._leg_type = np.random.choice(["two-legged", "single-legged"])
+            self._surface = weighted_sample(material_assignments.metal_neutral)()
+            self._support_surface = weighted_sample(material_assignments.metal_neutral)()
+            screen_surface = weighted_sample(material_assignments.graphicdesign)()
+            self._screen_emission = 0.01
+            if isinstance(screen_surface, Text):
+                self._screen_emission = 0.01 if uniform() < 0.1 else uniform(2, 3)
+            self._screen_surface = screen_surface
+        self.aspect_ratio = self._aspect_ratio
         self.width = params.width
         self.screen_bevel_width = params.screen_bevel_width
         self.side_margin = params.side_margin
@@ -168,17 +170,17 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             self.depth_extrude = self.depth * params.depth_extrude_multiplier
         else:
             self.depth_extrude = self.depth * 1.5
-        self.leg_type = params.leg_type
+        self.leg_type = self._leg_type
         self.leg_length = params.leg_length
         self.leg_length_y = params.leg_length_y
         self.leg_radius = params.leg_radius
         self.leg_width = params.leg_width
         self.leg_bevel_width = params.leg_bevel_width
-        self.surface = params.surface
-        self.support_surface = params.support_surface
-        self.screen_surface = params.screen_surface
+        self.surface = self._surface
+        self.support_surface = self._support_surface
+        self.screen_surface = self._screen_surface
         if isinstance(self.screen_surface, Text):
-            self.screen_surface.emission = params.screen_emission
+            self.screen_surface.emission = self._screen_emission
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self._tv_164 = params.tv_164

@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -29,7 +29,6 @@ class BlanketParameters(AssetParameters):
     thickness: Annotated[
         float, Field(ge=0.004, le=0.008, json_schema_extra={"editable": True})
     ]
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
@@ -47,12 +46,12 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
         surface_mat = surface_material_gen()
         if surface_mat == ArtFabric:
             surface_mat = surface_mat(seed)
+        self.surface = surface_mat
         return BlanketParameters(
             seed=seed,
             width=width,
             size=size_ratio,
             thickness=log_uniform(0.004, 0.008),
-            surface=surface_mat,
         )
 
     def apply_parameters(
@@ -61,7 +60,6 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
         self.width = params.width
         self.size = params.width * params.size
         self.thickness = params.thickness
-        self.surface = params.surface
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

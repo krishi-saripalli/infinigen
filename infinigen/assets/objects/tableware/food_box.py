@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -24,8 +24,6 @@ class FoodBoxParameters(AssetParameters):
     texture_shared_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    dimensions: Any = Field(json_schema_extra={"editable": False})
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class FoodBoxFactory(ParameterizedAssetFactory, AssetFactory):
@@ -37,18 +35,19 @@ class FoodBoxFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> FoodBoxParameters:
         dimensions = np.sort(log_uniform(0.05, 0.3, 3)).tolist()
-        return FoodBoxParameters(
-            seed=seed,
-            texture_shared_draw=uniform(),
-            dimensions=np.array([dimensions[1], dimensions[0], dimensions[2]]),
-            surface=text.Text(seed)(),
-        )
+        self._dimensions = np.array([dimensions[1], dimensions[0], dimensions[2]])
+        self._surface = text.Text(seed)()
+        return FoodBoxParameters(seed=seed, texture_shared_draw=uniform())
 
     def apply_parameters(
         self, params: FoodBoxParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.dimensions = params.dimensions
-        self.surface = params.surface
+        if not hasattr(self, "_dimensions"):
+            dimensions = np.sort(log_uniform(0.05, 0.3, 3)).tolist()
+            self._dimensions = np.array([dimensions[1], dimensions[0], dimensions[2]])
+            self._surface = text.Text(params.seed)()
+        self.dimensions = self._dimensions
+        self.surface = self._surface
         self.texture_shared = params.texture_shared_draw < 0.4
         self._use_fixed_spawn_draws = spawn_scope
 

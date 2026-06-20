@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import numpy as np
 from numpy.random import uniform
@@ -40,7 +40,6 @@ class TussockMonocotParameters(AssetParameters):
     leaf_prob: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": True})]
     z_scale: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
     base_hue: Annotated[float, Field(ge=0.1, le=0.35, json_schema_extra={"editable": True})]
-    material: Any = Field(json_schema_extra={"editable": False})
 
 
 class TussockMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -64,7 +63,7 @@ class TussockMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             uniform(0.8, 1.0),
             log_uniform(0.05, 0.2),
         )
-        material = shaderfunc_to_material(
+        self.material = shaderfunc_to_material(
             self.shader_monocot, dark_color, bright_color, self.use_distance
         )
         return TussockMonocotParameters(
@@ -80,7 +79,6 @@ class TussockMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             leaf_prob=leaf_prob,
             z_scale=z_scale,
             base_hue=base_hue,
-            material=material,
         )
 
     def apply_parameters(
@@ -106,7 +104,6 @@ class TussockMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         self.align_factor = 0
         self.align_direction = 1, 0, 0
         self.base_hue = params.base_hue
-        self.material = params.material
         self._use_fixed_spawn_draws = spawn_scope
 
     @staticmethod

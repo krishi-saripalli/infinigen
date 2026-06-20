@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import bmesh
 import bpy
@@ -31,9 +31,7 @@ class JarParameters(AssetParameters):
     thickness: Annotated[
         float, Field(ge=0.002, le=0.004, json_schema_extra={"editable": True})
     ]
-    n_base: Literal[4, 6, 64] = Field(json_schema_extra={"editable": False})
     x_cap_ratio: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})]
-    x_cap: float = Field(json_schema_extra={"editable": False})
     z_cap: Annotated[float, Field(ge=0.05, le=0.08, json_schema_extra={"editable": True})]
     z_neck: Annotated[float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": True})]
     cap_subsurf_draw: Annotated[
@@ -54,10 +52,6 @@ class JarParameters(AssetParameters):
     cap_z_ratio: Annotated[
         float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})
     ] = 0.65
-    surface: Any = Field(json_schema_extra={"editable": False})
-    cap_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class JarFactory(ParameterizedAssetFactory, AssetFactory):
@@ -72,26 +66,23 @@ class JarFactory(ParameterizedAssetFactory, AssetFactory):
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
         scratch_draw = uniform()
         edge_wear_draw = uniform()
-        n_base = int(np.random.choice([4, 6, 64]))
-        x_cap_ratio = uniform(0.6, 0.9)
+        self.n_base = int(np.random.choice([4, 6, 64]))
+        self.surface = weighted_sample(material_assignments.jar)()
+        self.cap_surface = weighted_sample(material_assignments.appliance_handle)()
+        self.scratch = None if scratch_draw > scratch_prob else scratch_fn()
+        self.edge_wear = None if edge_wear_draw > edge_wear_prob else edge_wear_fn()
         return JarParameters(
             seed=seed,
             z_length=uniform(0.15, 0.2),
             x_length=uniform(0.03, 0.06),
             thickness=uniform(0.002, 0.004),
-            n_base=n_base,
-            x_cap_ratio=x_cap_ratio,
-            x_cap=x_cap_ratio * np.cos(np.pi / n_base),
+            x_cap_ratio=uniform(0.6, 0.9),
             z_cap=uniform(0.05, 0.08),
             z_neck=uniform(0.15, 0.2),
             cap_subsurf_draw=uniform(),
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
             clear_draw=uniform(),
-            surface=weighted_sample(material_assignments.jar)(),
-            cap_surface=weighted_sample(material_assignments.appliance_handle)(),
-            scratch=None if scratch_draw > scratch_prob else scratch_fn(),
-            edge_wear=None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
         )
 
     def _sample_spawn_parameters(
@@ -110,16 +101,11 @@ class JarFactory(ParameterizedAssetFactory, AssetFactory):
         self.z_length = params.z_length
         self.x_length = params.x_length
         self.thickness = params.thickness
-        self.n_base = params.n_base
         self.x_cap_ratio = params.x_cap_ratio
-        self.x_cap = params.x_cap_ratio * np.cos(np.pi / params.n_base)
+        self.x_cap = params.x_cap_ratio * np.cos(np.pi / self.n_base)
         self.z_cap = params.z_cap
         self.z_neck = params.z_neck
         self.cap_subsurf = params.cap_subsurf_draw < 0.5
-        self.surface = params.surface
-        self.cap_surface = params.cap_surface
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
         self.clear = params.clear_draw < 0.5
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:

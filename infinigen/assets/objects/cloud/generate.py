@@ -20,6 +20,7 @@ from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import random_general as rg
 
 from .cloud import (
@@ -32,7 +33,7 @@ from .cloud import (
 
 
 class CloudParameters(AssetParameters):
-    cloudy: bool = Field(default=False, json_schema_extra={"editable": False})
+    pass
 
 
 class CumulusParameters(CloudParameters):
@@ -102,12 +103,15 @@ class CloudFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> CloudParameters:
-        return CloudParameters(seed=seed, cloudy=rg(self._cloudy_gin))
+        self._cloudy = rg(self._cloudy_gin)
+        return CloudParameters(seed=seed)
 
     def apply_parameters(
         self, params: CloudParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.cloudy = params.cloudy
+        if not hasattr(self, "_cloudy"):
+            self._cloudy = rg(self._cloudy_gin)
+        self.cloudy = self._cloudy
         self.cloud_types = (
             [Cumulonimbus]
             if self.cloudy

@@ -1519,7 +1519,6 @@ class ArmChairParameters(AssetParameters):
     leg_dimensions: float = Field(alias="leg_dimensions")
     leg_z: float = Field(alias="leg_z")
     leg_faces: float = Field(alias="leg_faces")
-    sofa_fabric: Any = Field(json_schema_extra={"editable": False})
 
 
 class ArmChairFactory(SofaFactory):
@@ -1532,18 +1531,12 @@ class ArmChairFactory(SofaFactory):
     def _sample_init_parameters(self, seed: int) -> ArmChairParameters:
         dimensions = (uniform(0.8, 1), uniform(0.9, 1.1), uniform(0.69, 0.97))
         geometry = sofa_parameter_distribution(dimensions=dimensions)
-        sofa_fabric_gen_class = weighted_sample(material_assignments.fabrics)
-        sofa_fabric = sofa_fabric_gen_class()()
-        return ArmChairParameters.model_validate(
-            {"seed": seed, "sofa_fabric": sofa_fabric, **geometry}
-        )
+        return ArmChairParameters.model_validate({"seed": seed, **geometry})
 
     def apply_parameters(
         self, params: ArmChairParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.model_dump(
-            exclude={"seed", "sofa_fabric"},
-            by_alias=True,
-        )
-        self.sofa_fabric = params.sofa_fabric
+        sofa_fabric_gen_class = weighted_sample(material_assignments.fabrics)
+        self.sofa_fabric = sofa_fabric_gen_class()()
+        self.params = params.model_dump(exclude={"seed"}, by_alias=True)
         self._use_fixed_spawn_draws = spawn_scope

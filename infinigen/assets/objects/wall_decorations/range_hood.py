@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -28,12 +28,6 @@ class RangeHoodParameters(AssetParameters):
     Height_1: Annotated[float, Field(ge=0.05, le=0.07, json_schema_extra={"editable": True})]
     Height_2: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": True})]
     Scale_2: Annotated[float, Field(ge=0.25, le=0.4, json_schema_extra={"editable": True})]
-    Height_total: float = Field(json_schema_extra={"editable": False})
-    Width: float = Field(json_schema_extra={"editable": False})
-    Depth: float = Field(json_schema_extra={"editable": False})
-    surface_material_gen: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class RangeHoodFactory(ParameterizedAssetFactory, AssetFactory):
@@ -79,26 +73,28 @@ class RangeHoodFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> RangeHoodParameters:
         geometry = self.sample_geometry_parameters(self.dimensions)
-        surface_material_gen, scratch, edge_wear = self._sample_materials()
         return RangeHoodParameters(
             seed=seed,
-            **geometry,
-            surface_material_gen=surface_material_gen,
-            scratch=scratch,
-            edge_wear=edge_wear,
+            Height_1=geometry["Height_1"],
+            Height_2=geometry["Height_2"],
+            Scale_2=geometry["Scale_2"],
         )
 
     def apply_parameters(
         self, params: RangeHoodParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.model_dump(
-            exclude={"seed", "surface_material_gen", "scratch", "edge_wear"},
-            by_alias=False,
-        )
-        self.surface_material_gen = params.surface_material_gen
-        self.surface = params.surface_material_gen
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        geometry = self.sample_geometry_parameters(self.dimensions)
+        surface_material_gen, scratch, edge_wear = self._sample_materials()
+        self.params = {
+            **geometry,
+            "Height_1": params.Height_1,
+            "Height_2": params.Height_2,
+            "Scale_2": params.Scale_2,
+        }
+        self.surface_material_gen = surface_material_gen
+        self.surface = surface_material_gen
+        self.scratch = scratch
+        self.edge_wear = edge_wear
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):

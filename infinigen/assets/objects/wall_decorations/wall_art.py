@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -19,6 +19,7 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.random import log_uniform, weighted_sample
 
@@ -30,15 +31,9 @@ class WallArtParameters(AssetParameters):
         float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})
     ]
     depth: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
-    frame_bevel_segments: Literal[0, 1, 4] = Field(json_schema_extra={"editable": False})
     frame_bevel_width: Annotated[
         float, Field(ge=0.0025, le=0.01, json_schema_extra={"editable": True})
     ]
-    surface_material_gen: Any = Field(json_schema_extra={"editable": False})
-    surface: Any = Field(json_schema_extra={"editable": False})
-    frame_surface_gen: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
@@ -67,19 +62,28 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
             "edge_wear": None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
         }
 
+    def _apply_internal_state(self, params: WallArtParameters) -> None:
+        with FixedSeed(params.seed):
+            materials = self._sample_materials(params.seed)
+            self.frame_bevel_segments = int(np.random.choice([0, 1, 4]))
+        self.surface_material_gen = materials["surface_material_gen"]
+        self.surface = materials["surface"]
+        self.frame_surface_gen = materials["frame_surface_gen"]
+        self.scratch = materials["scratch"]
+        self.edge_wear = materials["edge_wear"]
+
     def _sample_init_parameters(self, seed: int) -> WallArtParameters:
         depth = uniform(0.01, 0.02)
-        materials = self._sample_materials(seed)
-        return WallArtParameters(
+        params = WallArtParameters(
             seed=seed,
             width=log_uniform(0.4, 2),
             height=log_uniform(0.4, 2),
             thickness=uniform(0.02, 0.05),
             depth=depth,
-            frame_bevel_segments=int(np.random.choice([0, 1, 4])),
             frame_bevel_width=uniform(depth / 4, depth / 2),
-            **materials,
         )
+        self._apply_internal_state(params)
+        return params
 
     def apply_parameters(
         self, params: WallArtParameters, *, spawn_scope: bool = True
@@ -88,22 +92,13 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
         self.height = params.height
         self.thickness = params.thickness
         self.depth = params.depth
-        self.frame_bevel_segments = params.frame_bevel_segments
         self.frame_bevel_width = params.frame_bevel_width
-        self.surface_material_gen = params.surface_material_gen
-        self.surface = params.surface
-        self.frame_surface_gen = params.frame_surface_gen
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self._apply_internal_state(params)
         self._use_fixed_spawn_draws = spawn_scope
 
     def assign_materials(self):
-        materials = self._sample_materials(self.factory_seed)
-        self.surface_material_gen = materials["surface_material_gen"]
-        self.surface = materials["surface"]
-        self.frame_surface_gen = materials["frame_surface_gen"]
-        self.scratch = materials["scratch"]
-        self.edge_wear = materials["edge_wear"]
+        params = WallArtParameters(seed=self.factory_seed)
+        self._apply_internal_state(params)
 
     def create_placeholder(self, **params):
         return new_bbox(

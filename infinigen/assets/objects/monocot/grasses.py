@@ -118,7 +118,7 @@ class GrassesMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         return True
 
 
-class WheatEarMonocotParameters(LegacyBridgeParameters):
+class WheatEarMonocotParameters(AssetParameters):
     pass
 
 
@@ -137,25 +137,21 @@ def _wheat_ear_monocot_legacy_init(
 
 
 class WheatEarMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
-    parameters_model: ClassVar[type[LegacyBridgeParameters]] = WheatEarMonocotParameters
+    parameters_model: ClassVar[type[AssetParameters]] = WheatEarMonocotParameters
 
     def __init__(self, factory_seed, coarse=False):
         AssetFactory.__init__(self, factory_seed, coarse)
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> WheatEarMonocotParameters:
-        return legacy_init_to_parameters(
-            WheatEarMonocotParameters,
-            WheatEarMonocotFactory,
-            seed,
-            self.coarse,
-            init_fn=_wheat_ear_monocot_legacy_init,
-        )
+        return WheatEarMonocotParameters(seed=seed)
 
     def apply_parameters(
         self, params: WheatEarMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _wheat_ear_monocot_legacy_init(self, params.seed, self.coarse)
+        self._use_fixed_spawn_draws = spawn_scope
 
     @staticmethod
     def build_base_hue():
@@ -177,7 +173,7 @@ class WheatEarMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         return obj
 
 
-class WheatMonocotParameters(LegacyBridgeParameters):
+class WheatMonocotParameters(AssetParameters):
     ear_bend_angle: Annotated[
         float, Field(ge=0.0, le=np.pi, json_schema_extra={"editable": True})
     ] = 0.0
@@ -201,25 +197,24 @@ class WheatMonocotFactory(GrassesMonocotFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> WheatMonocotParameters:
-        return legacy_init_to_parameters(
-            WheatMonocotParameters,
-            WheatMonocotFactory,
-            seed,
-            self.coarse,
-            init_fn=_wheat_monocot_legacy_init,
-        )
+        return WheatMonocotParameters(seed=seed)
 
     def _sample_spawn_parameters(
         self, params: WheatMonocotParameters, seed: int, i: int
     ) -> WheatMonocotParameters:
-        return params.model_copy(
-            update={"ear_bend_angle": uniform(0, params.ear_factory.bend_angle)}
-        )
+        with FixedSeed(seed):
+            _wheat_monocot_legacy_init(self, seed, self.coarse)
+            ear_bend_angle = uniform(0, self.ear_factory.bend_angle)
+        return params.model_copy(update={"ear_bend_angle": ear_bend_angle})
 
     def apply_parameters(
         self, params: WheatMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _wheat_monocot_legacy_init(self, params.seed, self.coarse)
+        self._use_fixed_spawn_draws = spawn_scope
+        if spawn_scope:
+            self.ear_factory.bend_angle = params.ear_bend_angle
 
     @staticmethod
     def build_base_hue():

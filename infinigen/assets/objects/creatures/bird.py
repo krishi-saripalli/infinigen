@@ -183,11 +183,6 @@ class BirdParameters(AssetParameters):
     idle_wing_mag: Annotated[
         float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": True})
     ] = 0.15
-    body_material: Any = Field(json_schema_extra={"editable": False})
-    tongue_material: Any = Field(json_schema_extra={"editable": False})
-    bone_material: Any = Field(json_schema_extra={"editable": False})
-    eyeball_material: Any = Field(json_schema_extra={"editable": False})
-    beak_material: Any = Field(json_schema_extra={"editable": False})
 
 
 def _sample_bird_spawn_parameters() -> dict[str, Any]:
@@ -737,16 +732,17 @@ class BirdFactory(ParameterizedAssetFactory, AssetFactory):
         self.animation_mode = animation_mode
         self.init_legacy_parameters()
 
+    def _resolve_bird_materials(self, seed: int) -> None:
+        with FixedSeed(seed):
+            body_material_fac = weighted_sample(material_assignments.bird)
+            self.body_material = body_material_fac()
+            self.tongue_material = creature_materials.tongue.Tongue()
+            self.bone_material = creature_materials.bone.Bone()
+            self.eyeball_material = creature_materials.eyeball.Eyeball()
+            self.beak_material = creature_materials.beak.Beak()
+
     def _sample_init_parameters(self, seed: int) -> BirdParameters:
-        body_material_fac = weighted_sample(material_assignments.bird)
-        return BirdParameters(
-            seed=seed,
-            body_material=body_material_fac(),
-            tongue_material=creature_materials.tongue.Tongue(),
-            bone_material=creature_materials.bone.Bone(),
-            eyeball_material=creature_materials.eyeball.Eyeball(),
-            beak_material=creature_materials.beak.Beak(),
-        )
+        return BirdParameters(seed=seed)
 
     def _sample_spawn_parameters(
         self, params: BirdParameters, seed: int, i: int
@@ -756,11 +752,7 @@ class BirdFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: BirdParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.body_material = params.body_material
-        self.tongue_material = params.tongue_material
-        self.bone_material = params.bone_material
-        self.eyeball_material = params.eyeball_material
-        self.beak_material = params.beak_material
+        self._resolve_bird_materials(params.seed)
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self._bird_params = params

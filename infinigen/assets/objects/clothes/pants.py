@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -32,16 +32,10 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 class PantsParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.45, le=0.55, json_schema_extra={"editable": True})]
     size_extra: Annotated[float, Field(ge=0.0, le=0.05, json_schema_extra={"editable": True})]
-    size: float = Field(json_schema_extra={"editable": False})
     thickness: Annotated[
         float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})
     ]
     neck_shrink: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
-    pants_type: Literal["underwear", "shorts", "pants"] = Field(
-        json_schema_extra={"editable": False}
-    )
-    length: float = Field(json_schema_extra={"editable": False})
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class PantsFactory(ParameterizedAssetFactory, AssetFactory):
@@ -51,45 +45,58 @@ class PantsFactory(ParameterizedAssetFactory, AssetFactory):
         super(PantsFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_length(self, pants_type: str, size: float) -> float:
+        match pants_type:
+            case "underwear":
+                return size + uniform(-0.02, 0.02)
+            case "shorts":
+                return size + uniform(0.05, 0.1)
+            case _:
+                return size + uniform(0.5, 0.7)
+
     def _sample_init_parameters(self, seed: int) -> PantsParameters:
         width = log_uniform(0.45, 0.55)
         size_extra = uniform(0, 0.05)
         size = width / 2 + size_extra
         pants_type = np.random.choice(["underwear", "shorts", "pants"])
-        match pants_type:
-            case "underwear":
-                length = size + uniform(-0.02, 0.02)
-            case "shorts":
-                length = size + uniform(0.05, 0.1)
-            case _:
-                length = size + uniform(0.5, 0.7)
         surface_gen_class = weighted_sample(material_assignments.pants)
         surface_material_gen = surface_gen_class()
         surface = surface_material_gen()
         if surface == ArtFabric:
             surface = surface(seed)
+        self._size = size
+        self._pants_type = pants_type
+        self._length = self._sample_length(pants_type, size)
+        self._surface = surface
         return PantsParameters(
             seed=seed,
             width=width,
             size_extra=size_extra,
-            size=size,
             thickness=log_uniform(0.02, 0.03),
             neck_shrink=uniform(0.1, 0.15),
-            pants_type=pants_type,
-            length=length,
-            surface=surface,
         )
 
     def apply_parameters(
         self, params: PantsParameters, *, spawn_scope: bool = True
     ) -> None:
+        if not hasattr(self, "_size"):
+            size = params.width / 2 + params.size_extra
+            self._size = size
+            self._pants_type = np.random.choice(["underwear", "shorts", "pants"])
+            self._length = self._sample_length(self._pants_type, size)
+            surface_gen_class = weighted_sample(material_assignments.pants)
+            surface_material_gen = surface_gen_class()
+            surface = surface_material_gen()
+            if surface == ArtFabric:
+                surface = surface(params.seed)
+            self._surface = surface
         self.width = params.width
-        self.size = params.size
-        self.type = params.pants_type
-        self.length = params.length
+        self.size = self._size
+        self.type = self._pants_type
+        self.length = self._length
         self.neck_shrink = params.neck_shrink
         self.thickness = params.thickness
-        self.surface = params.surface
+        self.surface = self._surface
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

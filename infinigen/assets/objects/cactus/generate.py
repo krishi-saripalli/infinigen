@@ -24,6 +24,7 @@ from infinigen.core.placement.detail import remesh_with_attrs
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 from .base import BaseCactusFactory
@@ -38,8 +39,6 @@ class CactusParameters(AssetParameters):
     texture_type_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    factory: Any = Field(json_schema_extra={"editable": False})
-    material: Any = Field(json_schema_extra={"editable": False})
 
 
 class CactusFactory(ParameterizedAssetFactory, AssetFactory):
@@ -66,22 +65,29 @@ class CactusFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> CactusParameters:
         factory_method = self._resolve_factory_method(self._init_factory_method)
-        factory: BaseCactusFactory = factory_method(seed, self.coarse)
+        self.factory = factory_method(seed, self.coarse)
         base_hue = uniform(0.2, 0.4)
-        material = surface.shaderfunc_to_material(self.shader_cactus, base_hue)
+        self.material = surface.shaderfunc_to_material(self.shader_cactus, base_hue)
         return CactusParameters(
             seed=seed,
             base_hue=base_hue,
             texture_type_draw=uniform(),
-            factory=factory,
-            material=material,
         )
+
+    def _ensure_factory_state(self, params: CactusParameters) -> None:
+        if hasattr(self, "factory") and hasattr(self, "material"):
+            return
+        with FixedSeed(params.seed):
+            factory_method = self._resolve_factory_method(self._init_factory_method)
+            self.factory = factory_method(params.seed, self.coarse)
+            self.material = surface.shaderfunc_to_material(
+                self.shader_cactus, params.base_hue
+            )
 
     def apply_parameters(
         self, params: CactusParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.factory = params.factory
-        self.material = params.material
+        self._ensure_factory_state(params)
         self._texture_type_draw = params.texture_type_draw
         self._use_fixed_spawn_draws = spawn_scope
 

@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -46,9 +46,6 @@ class BedFrameParameters(ChairParameters):
     has_all_legs_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    leg_decor_type: Literal["coiled", "pad", "plain", "legs", "none"] = Field(
-        json_schema_extra={"editable": False}
-    )
     leg_decor_wrapped_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
@@ -92,6 +89,15 @@ class BedFrameFactory(ChairFactory):
         super(ChairFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _resolve_bedframe_internals(self, seed: int) -> dict[str, Any]:
+        with FixedSeed(seed):
+            chair_internals = self._resolve_chair_internals(seed)
+            return {
+                **chair_internals,
+                "leg_decor_type": rg(self.leg_decor_types),
+                "back_type": rg(self.back_types),
+            }
+
     def _sample_init_parameters(self, seed: int) -> BedFrameParameters:
         width = log_uniform(1.4, 2.4)
         size = uniform(2, 2.4)
@@ -99,21 +105,9 @@ class BedFrameFactory(ChairFactory):
         bevel_width = thickness * (0.1 if uniform() < 0.4 else 0.5)
         back_height = uniform(0.5, 1.3)
         arm_thickness = uniform(0.04, 0.06)
-        limb_surface_gen_class = weighted_sample(material_assignments.furniture_leg)
-        limb_surface_material_gen = limb_surface_gen_class()
-        surface_gen_class = weighted_sample(material_assignments.bedframe)
-        surface_material_gen = surface_gen_class()
-        surface_mat = surface_material_gen()
-        panel_surface_same_draw = uniform()
-        panel_surface = (
-            surface_mat
-            if panel_surface_same_draw < 0.3
-            else weighted_sample(material_assignments.furniture_hard_surface)()()
-        )
-        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-        scratch_fn, edge_wear_fn = material_assignments.wear_tear
         scratch_draw = uniform()
         edge_wear_draw = uniform()
+        panel_surface_same_draw = uniform()
         return BedFrameParameters(
             seed=seed,
             width=width,
@@ -132,7 +126,6 @@ class BedFrameFactory(ChairFactory):
             leg_height=uniform(0.2, 0.6),
             back_height=back_height,
             is_leg_round_draw=uniform(),
-            leg_type="vertical",
             has_leg_x_bar_draw=uniform(),
             has_leg_y_bar_draw=uniform(),
             leg_offset_bar_low=uniform(0.2, 0.4),
@@ -142,26 +135,13 @@ class BedFrameFactory(ChairFactory):
             arm_height=uniform(0.6, 1.0),
             arm_y=uniform(0.8, 1.0),
             arm_z=uniform(0.3, 0.6),
-            arm_mid=(
-                uniform(-0.03, 0.03),
-                uniform(-0.03, 0.09),
-                uniform(-0.09, 0.03),
-            ),
-            arm_profile=tuple(log_uniform(0.1, 3, 2)),
             back_thickness=uniform(0.04, 0.05),
-            back_type=rg(self.back_types),
             back_vertical_cuts=int(np.random.randint(1, 4)),
             back_partial_scale=uniform(1, 1.4),
             panel_surface_same_draw=panel_surface_same_draw,
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
-            limb_surface=limb_surface_material_gen(),
-            surface=surface_mat,
-            panel_surface=panel_surface,
-            scratch=None if scratch_draw > scratch_prob else scratch_fn(),
-            edge_wear=None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
             has_all_legs_draw=uniform(),
-            leg_decor_type=rg(self.leg_decor_types),
             leg_decor_wrapped_draw=uniform(),
             seat_subdivisions_x=int(np.random.randint(1, 4)),
             seat_subdivisions_y=int(log_uniform(4, 10)),
@@ -186,9 +166,21 @@ class BedFrameFactory(ChairFactory):
     def apply_parameters(
         self, params: BedFrameParameters, *, spawn_scope: bool = True
     ) -> None:
+        internals = self._resolve_bedframe_internals(params.seed)
+        with FixedSeed(params.seed):
+            surface_gen_class = weighted_sample(material_assignments.bedframe)
+            surface_mat = surface_gen_class()()
+            panel_surface = (
+                surface_mat
+                if params.panel_surface_same_draw < 0.3
+                else weighted_sample(material_assignments.furniture_hard_surface)()()
+            )
         super().apply_parameters(params, spawn_scope=spawn_scope)
+        self.back_type = internals["back_type"]
+        self.surface = surface_mat
+        self.panel_surface = panel_surface
         self.has_all_legs = params.has_all_legs_draw < 0.2
-        self.leg_decor_type = params.leg_decor_type
+        self.leg_decor_type = internals["leg_decor_type"]
         self.leg_decor_wrapped = params.leg_decor_wrapped_draw < 0.5
         self.seat_subdivisions_x = params.seat_subdivisions_x
         self.seat_subdivisions_y = int(params.seat_subdivisions_y)

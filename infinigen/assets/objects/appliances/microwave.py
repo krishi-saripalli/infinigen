@@ -33,14 +33,6 @@ class MicrowaveParameters(AssetParameters):
         float, Field(ge=0.02, le=0.04, json_schema_extra={"editable": True})
     ]
     DoorMargin: Annotated[float, Field(ge=0.03, le=0.1, json_schema_extra={"editable": True})]
-    DoorRotation: float = Field(default=0.0, json_schema_extra={"editable": False})
-    BrandName: str = Field(json_schema_extra={"editable": False})
-    Surface: Any = Field(json_schema_extra={"editable": False})
-    Back: Any = Field(json_schema_extra={"editable": False})
-    BlackGlass: Any = Field(json_schema_extra={"editable": False})
-    Glass: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class MicrowaveFactory(ParameterizedAssetFactory, AssetFactory):
@@ -86,20 +78,22 @@ class MicrowaveFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_init_parameters(self, seed: int) -> MicrowaveParameters:
         geometry = self.sample_geometry_parameters()
         materials, scratch, edge_wear = self._sample_materials()
-        return MicrowaveParameters(
-            seed=seed,
-            **geometry,
-            **materials,
-            scratch=scratch,
-            edge_wear=edge_wear,
-        )
+        self.BrandName = geometry.pop("BrandName")
+        self.DoorRotation = geometry.pop("DoorRotation")
+        self._mesh_materials = materials
+        self.scratch = scratch
+        self.edge_wear = edge_wear
+        return MicrowaveParameters(seed=seed, **geometry)
 
     def apply_parameters(
         self, params: MicrowaveParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.model_dump(exclude={"seed", "scratch", "edge_wear"})
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self.params = {
+            **params.model_dump(exclude={"seed"}),
+            "BrandName": self.BrandName,
+            "DoorRotation": self.DoorRotation,
+            **self._mesh_materials,
+        }
         self._use_fixed_spawn_draws = spawn_scope
 
     def get_material_params(self):

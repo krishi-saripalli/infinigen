@@ -52,30 +52,56 @@ def sample_tableware_base(seed: int) -> dict[str, Any]:
 
 
 def apply_tableware_base(factory: "TablewareFactory", params: Any) -> None:
+    apply_tableware_from_draws(
+        factory,
+        seed=params.seed,
+        lower_thresh=params.lower_thresh,
+        scale=params.scale,
+        scratch_draw=params.scratch_draw,
+        edge_wear_draw=params.edge_wear_draw,
+        has_guard=getattr(params, "has_guard", False),
+        has_inside=getattr(params, "has_inside", None),
+        guard_depth=getattr(params, "guard_depth", None),
+        metal_color=getattr(params, "metal_color", None),
+    )
     if hasattr(params, "thickness"):
         factory.thickness = params.thickness
     elif hasattr(params, "thickness_ratio"):
         factory.thickness = params.thickness_ratio * params.scale
-    factory.surface = params.surface
-    factory.inside_surface = params.inside_surface
-    factory.guard_surface = params.guard_surface
-    factory.scratch = params.scratch
-    factory.edge_wear = params.edge_wear
-    if hasattr(params, "guard_depth"):
-        factory.guard_depth = params.guard_depth
     elif hasattr(params, "guard_depth_mult"):
         factory.guard_depth = params.guard_depth_mult * factory.thickness
-    else:
-        factory.guard_depth = factory.thickness
-    if hasattr(params, "has_guard"):
-        factory.has_guard = params.has_guard
-    if hasattr(params, "has_inside"):
-        factory.has_inside = params.has_inside
-    else:
-        factory.has_inside = False
-    factory.lower_thresh = params.lower_thresh
-    factory.scale = params.scale
-    factory.metal_color = getattr(params, "metal_color", "bw+natural")
+
+
+def apply_tableware_from_draws(
+    factory: "TablewareFactory",
+    *,
+    seed: int,
+    lower_thresh: float,
+    scale: float,
+    scratch_draw: float,
+    edge_wear_draw: float,
+    has_guard: bool = False,
+    has_inside: bool | None = None,
+    guard_depth: float | None = None,
+    metal_color: str | None = None,
+) -> None:
+    with FixedSeed(seed):
+        base = sample_tableware_base(seed)
+    factory.surface = base["surface"]
+    factory.inside_surface = base["inside_surface"]
+    factory.guard_surface = base["guard_surface"]
+    factory.scratch = (
+        None if scratch_draw > base["scratch_prob"] else base["scratch_fn"]()
+    )
+    factory.edge_wear = (
+        None if edge_wear_draw > base["edge_wear_prob"] else base["edge_wear_fn"]()
+    )
+    factory.guard_depth = base["thickness"] if guard_depth is None else guard_depth
+    factory.has_guard = has_guard
+    factory.has_inside = False if has_inside is None else has_inside
+    factory.lower_thresh = lower_thresh
+    factory.scale = scale
+    factory.metal_color = "bw+natural" if metal_color is None else metal_color
 
 
 class TablewareFactory(AssetFactory):

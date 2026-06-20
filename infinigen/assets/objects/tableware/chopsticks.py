@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -13,7 +13,7 @@ from pydantic import Field
 
 from infinigen.assets.objects.tableware.base import (
     TablewareFactory,
-    apply_tableware_base,
+    apply_tableware_from_draws,
     sample_tableware_base,
 )
 from infinigen.assets.utils.decorate import subsurf, write_co
@@ -67,13 +67,6 @@ class ChopsticksParameters(AssetParameters):
     crossed_rot: Annotated[
         float, Field(ge=0.392699, le=0.785398, json_schema_extra={"editable": True})
     ] = 0.392699
-    surface: Any = Field(json_schema_extra={"editable": False})
-    inside_surface: Any = Field(json_schema_extra={"editable": False})
-    guard_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    guard_depth: float = Field(default=0.0, json_schema_extra={"editable": False})
-    metal_color: str = Field(default="bw+natural", json_schema_extra={"editable": False})
 
 
 class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
@@ -97,22 +90,6 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
             scale=log_uniform(0.2, 0.4),
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
-            thickness=base["thickness"],
-            surface=base["surface"],
-            inside_surface=base["inside_surface"],
-            guard_surface=base["guard_surface"],
-            scratch=(
-                None
-                if base["scratch_draw"] > base["scratch_prob"]
-                else base["scratch_fn"]()
-            ),
-            edge_wear=(
-                None
-                if base["edge_wear_draw"] > base["edge_wear_prob"]
-                else base["edge_wear_fn"]()
-            ),
-            guard_depth=0.0,
-            metal_color=base["metal_color"],
         )
 
     def _sample_spawn_parameters(
@@ -144,13 +121,22 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
     def apply_parameters(
         self, params: ChopsticksParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_tableware_base(self, params)
+        apply_tableware_from_draws(
+            self,
+            seed=params.seed,
+            lower_thresh=params.lower_thresh,
+            scale=params.scale,
+            scratch_draw=params.scratch_draw,
+            edge_wear_draw=params.edge_wear_draw,
+            guard_depth=0.0,
+        )
+        self.thickness = 0.01
         self.y_length = params.y_length
         self.y_shrink = params.y_shrink
         self.is_square = params.is_square_draw < 0.5
         self.has_guard = params.has_guard_draw < 0.4
         self.x_guard = params.x_guard
-        self.guard_depth = params.guard_depth
+        self.guard_depth = 0.0
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self._parallel_draw = params.parallel_draw

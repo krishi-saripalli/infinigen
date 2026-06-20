@@ -7,12 +7,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import bpy
 import gin
 import numpy as np
-from pydantic import Field
 from numpy.random import normal as N
 from numpy.random import randint
 from numpy.random import uniform as U
@@ -131,7 +130,7 @@ def beetle_genome():
 
 
 class BeetleParameters(AssetParameters):
-    body_material: Any = Field(default=None, json_schema_extra={"editable": False})
+    pass
 
 
 @gin.configurable
@@ -147,15 +146,13 @@ class BeetleFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BeetleParameters:
-        return BeetleParameters(
-            seed=seed,
-            body_material=weighted_sample(material_assignments.beetle)(),
-        )
+        return BeetleParameters(seed=seed)
 
     def apply_parameters(
         self, params: BeetleParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.body_material = params.body_material
+        with FixedSeed(params.seed):
+            self.body_material = weighted_sample(material_assignments.beetle)()
         self._use_fixed_spawn_draws = spawn_scope
 
     def apply_materials(self, obj):

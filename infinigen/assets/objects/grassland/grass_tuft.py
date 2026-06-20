@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -17,6 +17,7 @@ from infinigen.assets.utils.geometry.curve import Curve
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.tagging import tag_object
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util import blender as butil
 
 
@@ -36,8 +37,6 @@ class GrassTuftParameters(AssetParameters):
     ]
     base_angle_var: Annotated[float, Field(ge=0.0, le=15.0, json_schema_extra={"editable": True})]
     n_blades: Annotated[int, Field(ge=30, le=59, json_schema_extra={"editable": True})] = 45
-    taper_points: Any = Field(json_schema_extra={"editable": False})
-    material_gen: Any = Field(json_schema_extra={"editable": False})
 
 
 class GrassTuftFactory(ParameterizedAssetFactory, AssetFactory):
@@ -68,8 +67,6 @@ class GrassTuftFactory(ParameterizedAssetFactory, AssetFactory):
             taper_var=taper_var,
             base_spread=uniform(0, length_mean / 4),
             base_angle_var=uniform(0, 15),
-            taper_points=self._sample_taper_points(taper_var),
-            material_gen=grass_blade.GrassBlade(),
         )
 
     def _sample_spawn_parameters(
@@ -80,6 +77,9 @@ class GrassTuftFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: GrassTuftParameters, *, spawn_scope: bool = True
     ) -> None:
+        with FixedSeed(params.seed):
+            self.taper_points = self._sample_taper_points(params.taper_var)
+            self.material_gen = grass_blade.GrassBlade()
         self.length_mean = params.length_mean
         self.length_std = params.length_mean * params.length_std
         self.curl_mean = params.curl_mean
@@ -87,10 +87,8 @@ class GrassTuftFactory(ParameterizedAssetFactory, AssetFactory):
         self.curl_power = params.curl_power
         self.blade_width_pct_mean = params.blade_width_pct_mean
         self.blade_width_var = params.blade_width_var
-        self.taper_points = params.taper_points
         self.base_spread = params.base_spread
         self.base_angle_var = params.base_angle_var
-        self.material_gen = params.material_gen
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.n_blades = params.n_blades

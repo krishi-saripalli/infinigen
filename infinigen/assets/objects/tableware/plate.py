@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -13,7 +13,7 @@ from pydantic import Field
 
 from infinigen.assets.objects.tableware.base import (
     TablewareFactory,
-    apply_tableware_base,
+    apply_tableware_from_draws,
     sample_tableware_base,
 )
 from infinigen.assets.utils.decorate import subsurf
@@ -43,14 +43,6 @@ class PlateParameters(AssetParameters):
     edge_wear_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    surface: Any = Field(json_schema_extra={"editable": False})
-    inside_surface: Any = Field(json_schema_extra={"editable": False})
-    guard_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    has_guard: bool = Field(default=False, json_schema_extra={"editable": False})
-    guard_depth: float = Field(default=0.01, json_schema_extra={"editable": False})
-    metal_color: str = Field(default="bw+natural", json_schema_extra={"editable": False})
 
 
 class PlateFactory(ParameterizedAssetFactory, TablewareFactory):
@@ -78,20 +70,19 @@ class PlateFactory(ParameterizedAssetFactory, TablewareFactory):
             has_inside_draw=uniform(),
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
-            surface=base["surface"],
-            inside_surface=base["inside_surface"],
-            guard_surface=base["guard_surface"],
-            scratch=None,
-            edge_wear=None,
-            has_guard=False,
-            guard_depth=base["guard_depth"],
-            metal_color=base["metal_color"],
         )
 
     def apply_parameters(
         self, params: PlateParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_tableware_base(self, params)
+        apply_tableware_from_draws(
+            self,
+            seed=params.seed,
+            lower_thresh=params.lower_thresh,
+            scale=params.scale,
+            scratch_draw=params.scratch_draw,
+            edge_wear_draw=params.edge_wear_draw,
+        )
         self.thickness = params.thickness_ratio * params.scale
         self.has_inside = params.has_inside_draw < 0.2
         self.x_mid = params.x_mid

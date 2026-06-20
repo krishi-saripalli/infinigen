@@ -197,9 +197,6 @@ class TapParameters(AssetParameters):
     length_one_side_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    Tap: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class TapFactory(ParameterizedAssetFactory, AssetFactory):
@@ -238,19 +235,22 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_init_parameters(self, seed: int) -> TapParameters:
         geometry = self.sample_geometry_parameters()
         materials, scratch, edge_wear = self._sample_materials()
-        return TapParameters(
-            seed=seed,
-            **geometry,
-            **materials,
-            scratch=scratch,
-            edge_wear=edge_wear,
-        )
+        self._tap_material = materials["Tap"]
+        self._scratch = scratch
+        self._edge_wear = edge_wear
+        return TapParameters(seed=seed, **geometry)
 
     def apply_parameters(
         self, params: TapParameters, *, spawn_scope: bool = True
     ) -> None:
+        if not hasattr(self, "_tap_material"):
+            materials, scratch, edge_wear = self._sample_materials()
+            self._tap_material = materials["Tap"]
+            self._scratch = scratch
+            self._edge_wear = edge_wear
         self.params = {
-            **params.model_dump(exclude={"seed", "scratch", "edge_wear"}),
+            **params.model_dump(exclude={"seed"}),
+            "Tap": self._tap_material,
             "Switch": params.Switch_draw > 0.5,
             "hand_type": params.hand_type_draw > 0.2,
             "one_side": params.one_side_draw > 0.5,
@@ -265,8 +265,8 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
             "length_one_side_draw",
         ):
             self.params.pop(draw_key, None)
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **_):

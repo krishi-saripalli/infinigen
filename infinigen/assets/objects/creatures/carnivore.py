@@ -297,10 +297,6 @@ def tiger_genome(params: CarnivoreCreatureParams):
 
 class CarnivoreParameters(AssetParameters):
     creature: CarnivoreCreatureParams
-    body_material: Any = Field(json_schema_extra={"editable": False})
-    tongue_material: Any = Field(json_schema_extra={"editable": False})
-    teeth_material: Any = Field(json_schema_extra={"editable": False})
-    nose_material: Any = Field(json_schema_extra={"editable": False})
 
 
 @gin.configurable
@@ -324,15 +320,22 @@ class CarnivoreFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> CarnivoreParameters:
-        return CarnivoreParameters(
-            seed=seed,
-            creature=sample_creature_params(),
-            body_material=weighted_sample(material_assignments.carnivore)(),
-            tongue_material=materials.creature.Tongue(),
-            teeth_material=materials.creature.Bone(),
-            nose_material=materials.creature.Nose(),
+    def _sample_materials(self) -> tuple[Any, Any, Any, Any]:
+        return (
+            weighted_sample(material_assignments.carnivore)(),
+            materials.creature.Tongue(),
+            materials.creature.Bone(),
+            materials.creature.Nose(),
         )
+
+    def _sample_init_parameters(self, seed: int) -> CarnivoreParameters:
+        (
+            self._body_material,
+            self._tongue_material,
+            self._teeth_material,
+            self._nose_material,
+        ) = self._sample_materials()
+        return CarnivoreParameters(seed=seed, creature=sample_creature_params())
 
     def apply_parameters(
         self, params: CarnivoreParameters, *, spawn_scope: bool = True
@@ -342,11 +345,18 @@ class CarnivoreFactory(ParameterizedAssetFactory, AssetFactory):
                 "Dynamic hair is not yet fully working. "
                 "Please disable either hair or both of animation/clothsim"
             )
+        if not hasattr(self, "_body_material"):
+            (
+                self._body_material,
+                self._tongue_material,
+                self._teeth_material,
+                self._nose_material,
+            ) = self._sample_materials()
         self.creature_params = params.creature
-        self.body_material = params.body_material
-        self.tongue_material = params.tongue_material
-        self.teeth_material = params.teeth_material
-        self.nose_material = params.nose_material
+        self.body_material = self._body_material
+        self.tongue_material = self._tongue_material
+        self.teeth_material = self._teeth_material
+        self.nose_material = self._nose_material
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs):

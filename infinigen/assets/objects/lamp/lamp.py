@@ -46,11 +46,6 @@ class DeskLampParameters(AssetParameters):
     z1: Annotated[float, Field(ge=0.010002, le=0.383766, json_schema_extra={"editable": True})]
     z2: Annotated[float, Field(ge=0.029471, le=0.383766, json_schema_extra={"editable": True})]
     lamp_178: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    BlackMaterial: Any = Field(json_schema_extra={"editable": False})
-    MetalMaterial: Any = Field(json_schema_extra={"editable": False})
-    LampshadeMaterial: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class LampParameters(LegacyBridgeParameters):
@@ -284,6 +279,9 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
         z2 = U(z1, height)
         head_top_radius = U(0.07, 0.15)
         materials, scratch, edge_wear = self._sample_materials()
+        self._material_params = materials
+        self._scratch = scratch
+        self._edge_wear = edge_wear
         return DeskLampParameters(
             seed=seed,
             StandRadius=U(0.005, 0.015),
@@ -297,14 +295,16 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
             z1=z1,
             z2=z2,
             lamp_178=U(),
-            **materials,
-            scratch=scratch,
-            edge_wear=edge_wear,
         )
 
     def apply_parameters(
         self, params: DeskLampParameters, *, spawn_scope: bool = True
     ) -> None:
+        if not hasattr(self, "_material_params"):
+            materials, scratch, edge_wear = self._sample_materials()
+            self._material_params = materials
+            self._scratch = scratch
+            self._edge_wear = edge_wear
         self.params = {
             "StandRadius": params.StandRadius,
             "BaseRadius": params.BaseRadius,
@@ -317,12 +317,10 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
             "CurvePoint1": (0.0, 0.0, params.z1),
             "CurvePoint2": (0.0, 0.0, params.z2),
             "CurvePoint3": (0.0, 0.0, params.height),
-            "BlackMaterial": params.BlackMaterial,
-            "MetalMaterial": params.MetalMaterial,
-            "LampshadeMaterial": params.LampshadeMaterial,
+            **self._material_params,
         }
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self._lamp_178 = params.lamp_178

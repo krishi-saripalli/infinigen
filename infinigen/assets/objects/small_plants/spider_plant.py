@@ -384,14 +384,6 @@ class SpiderPlantParameters(AssetParameters):
     init_base_radius: Annotated[
         float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})
     ]
-    diff_base_radius: float = Field(json_schema_extra={"editable": False})
-    init_x_r: float = Field(json_schema_extra={"editable": False})
-    diff_x_r: float = Field(json_schema_extra={"editable": False})
-    init_x_s: float = Field(json_schema_extra={"editable": False})
-    diff_x_s: float = Field(json_schema_extra={"editable": False})
-    base_radius: tuple[float, ...] = Field(default=(), json_schema_extra={"editable": False})
-    leaf_x_R: tuple[float, ...] = Field(default=(), json_schema_extra={"editable": False})
-    leaf_x_S: tuple[float, ...] = Field(default=(), json_schema_extra={"editable": False})
 
 
 class SpiderPlantFactory(ParameterizedAssetFactory, AssetFactory):
@@ -418,17 +410,31 @@ class SpiderPlantFactory(ParameterizedAssetFactory, AssetFactory):
             leaf_x_s.append(init_x_s - (i * diff_x_s) / num_bases)
         return tuple(base_radius), tuple(leaf_x_r), tuple(leaf_x_s)
 
+    def _default_geom_params(self) -> dict[str, list[float] | int]:
+        base_radius, leaf_x_r, leaf_x_s = self._build_radius_lists(
+            8,
+            0.15,
+            0.11,
+            1.35,
+            0.9,
+            1.7,
+            0.4,
+        )
+        return {
+            "num_leaf_versions": 6,
+            "num_plant_bases": 8,
+            "base_radius": list(base_radius),
+            "leaf_x_R": list(leaf_x_r),
+            "leaf_x_S": list(leaf_x_s),
+        }
+
     def _sample_init_parameters(self, seed: int) -> SpiderPlantParameters:
+        self._geom_params = self._default_geom_params()
         return SpiderPlantParameters(
             seed=seed,
             num_leaf_versions=6,
             num_plant_bases=8,
             init_base_radius=0.15,
-            diff_base_radius=0.11,
-            init_x_r=1.35,
-            diff_x_r=0.9,
-            init_x_s=1.7,
-            diff_x_s=0.4,
         )
 
     def _sample_spawn_parameters(
@@ -448,32 +454,27 @@ class SpiderPlantFactory(ParameterizedAssetFactory, AssetFactory):
             init_x_s,
             diff_x_s,
         )
+        self._geom_params = {
+            "num_leaf_versions": randint(4, 8),
+            "num_plant_bases": num_bases,
+            "base_radius": list(base_radius),
+            "leaf_x_R": list(leaf_x_r),
+            "leaf_x_S": list(leaf_x_s),
+        }
         return params.model_copy(
             update={
-                "num_leaf_versions": randint(4, 8),
+                "num_leaf_versions": self._geom_params["num_leaf_versions"],
                 "num_plant_bases": num_bases,
                 "init_base_radius": init_base_radius,
-                "diff_base_radius": diff_base_radius,
-                "init_x_r": init_x_r,
-                "diff_x_r": diff_x_r,
-                "init_x_s": init_x_s,
-                "diff_x_s": diff_x_s,
-                "base_radius": base_radius,
-                "leaf_x_R": leaf_x_r,
-                "leaf_x_S": leaf_x_s,
             }
         )
 
     def apply_parameters(
         self, params: SpiderPlantParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.geom_params = {
-            "num_leaf_versions": params.num_leaf_versions,
-            "num_plant_bases": params.num_plant_bases,
-            "base_radius": list(params.base_radius),
-            "leaf_x_R": list(params.leaf_x_R),
-            "leaf_x_S": list(params.leaf_x_S),
-        }
+        if not hasattr(self, "_geom_params"):
+            self._geom_params = self._default_geom_params()
+        self.geom_params = self._geom_params
         self._use_fixed_spawn_draws = spawn_scope
 
     def get_params(self):

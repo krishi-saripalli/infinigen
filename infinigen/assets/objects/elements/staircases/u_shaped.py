@@ -29,7 +29,7 @@ from infinigen.core.util.random import log_uniform
 from .straight import StraightStaircaseFactory
 
 
-class UShapedStaircaseParameters(LegacyBridgeParameters):
+class UShapedStaircaseParameters(AssetParameters):
     pass
 
 
@@ -49,7 +49,7 @@ def _ushaped_staircase_legacy_init(
 
 
 class UShapedStaircaseFactory(StraightStaircaseFactory):
-    parameters_model: ClassVar[type[LegacyBridgeParameters]] = UShapedStaircaseParameters
+    parameters_model: ClassVar[type[AssetParameters]] = UShapedStaircaseParameters
 
     def __init__(self, factory_seed, coarse=False, constants=None):
         self._init_constants = constants
@@ -57,19 +57,19 @@ class UShapedStaircaseFactory(StraightStaircaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> UShapedStaircaseParameters:
-        return legacy_init_to_parameters(
-            UShapedStaircaseParameters,
-            UShapedStaircaseFactory,
-            seed,
-            self.coarse,
-            init_fn=_ushaped_staircase_legacy_init,
-            constants=self._init_constants,
-        )
+        return UShapedStaircaseParameters(seed=seed)
 
     def apply_parameters(
         self, params: UShapedStaircaseParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _ushaped_staircase_legacy_init(
+                self,
+                params.seed,
+                self.coarse,
+                constants=self._init_constants,
+            )
+        self._use_fixed_spawn_draws = spawn_scope
 
     def build_size_config(self):
         self.n = int(np.random.randint(13, 21) / 2) * 2

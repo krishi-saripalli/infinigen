@@ -53,7 +53,6 @@ class OvenParameters(AssetParameters):
     DoorThickness: Annotated[
         float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})
     ]
-    DoorRotation: float = Field(default=0.0, json_schema_extra={"editable": False})
     RackRadius: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
     RackHAmount: Annotated[int, Field(ge=2, le=4, json_schema_extra={"editable": True})]
     RackDAmount: Annotated[int, Field(ge=4, le=6, json_schema_extra={"editable": True})]
@@ -77,15 +76,6 @@ class OvenParameters(AssetParameters):
     ]
     CenterRatio: Annotated[float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})]
     MiddleRatio: Annotated[float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": True})]
-    BrandName: str = Field(json_schema_extra={"editable": False})
-    Grids: list[int] = Field(json_schema_extra={"editable": False})
-    Surface: Any = Field(json_schema_extra={"editable": False})
-    Back: Any = Field(json_schema_extra={"editable": False})
-    WhiteMetal: Any = Field(json_schema_extra={"editable": False})
-    SuperBlackGlass: Any = Field(json_schema_extra={"editable": False})
-    Glass: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 @gin.configurable
@@ -156,26 +146,43 @@ class OvenFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_init_parameters(self, seed: int) -> OvenParameters:
         geometry = self.sample_geometry_parameters()
         materials, scratch, edge_wear = self._sample_materials()
+        self._geometry_runtime = {
+            k: geometry[k]
+            for k in ("DoorRotation", "BrandName", "Grids")
+        }
+        self._material_runtime = materials
+        self._scratch = scratch
+        self._edge_wear = edge_wear
         return OvenParameters(
             seed=seed,
-            **geometry,
-            **materials,
-            scratch=scratch,
-            edge_wear=edge_wear,
+            **{
+                k: v
+                for k, v in geometry.items()
+                if k not in ("DoorRotation", "BrandName", "Grids")
+            },
         )
 
     def apply_parameters(
         self, params: OvenParameters, *, spawn_scope: bool = True
     ) -> None:
-        dump = params.model_dump(
-            exclude={"seed", "scratch", "edge_wear", "n_grids"}, by_alias=False
-        )
-        self.params = {k: v for k, v in dump.items() if k not in _MATERIAL_KEYS}
+        runtime = getattr(self, "_geometry_runtime", {})
+        dump = params.model_dump(exclude={"seed"}, by_alias=False)
+        dump.update(runtime)
+        if hasattr(self, "_material_runtime"):
+            dump.update(self._material_runtime)
+        else:
+            materials, scratch, edge_wear = self._sample_materials()
+            dump.update(materials)
+            self._scratch = scratch
+            self._edge_wear = edge_wear
+        self.params = {
+            k: v for k, v in dump.items() if k not in _MATERIAL_KEYS
+        }
         self.geometry_node_params = {
             k: v for k, v in dump.items() if k not in _GAS_ONLY_KEYS
         }
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self.scratch = getattr(self, "_scratch", None)
+        self.edge_wear = getattr(self, "_edge_wear", None)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:

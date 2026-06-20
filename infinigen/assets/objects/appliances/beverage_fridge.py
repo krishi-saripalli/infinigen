@@ -38,17 +38,9 @@ class BeverageFridgeParameters(AssetParameters):
     DoorThickness: Annotated[
         float, Field(ge=0.035, le=0.13, json_schema_extra={"editable": True})
     ]
-    DoorRotation: float = Field(default=0.0, json_schema_extra={"editable": False})
     RackRadius: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
     RackHAmount: Annotated[int, Field(ge=2, le=4, json_schema_extra={"editable": True})]
     RackDAmount: Annotated[int, Field(ge=4, le=6, json_schema_extra={"editable": True})]
-    BrandName: str = Field(default="BrandName", json_schema_extra={"editable": False})
-    Surface: Any = Field(json_schema_extra={"editable": False})
-    Front: Any = Field(json_schema_extra={"editable": False})
-    Handle: Any = Field(json_schema_extra={"editable": False})
-    Back: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 @gin.configurable
@@ -101,23 +93,34 @@ class BeverageFridgeFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> BeverageFridgeParameters:
         geometry = self.sample_geometry_parameters()
-        materials, scratch, edge_wear = self._sample_materials()
         return BeverageFridgeParameters(
             seed=seed,
-            **geometry,
-            **materials,
-            scratch=scratch,
-            edge_wear=edge_wear,
+            Depth=geometry["Depth"],
+            Width=geometry["Width"],
+            Height=geometry["Height"],
+            DoorThickness=geometry["DoorThickness"],
+            RackRadius=geometry["RackRadius"],
+            RackHAmount=geometry["RackHAmount"],
+            RackDAmount=geometry["RackDAmount"],
         )
+
+    def _resolve_mesh_params(self, params: BeverageFridgeParameters) -> None:
+        with FixedSeed(params.seed):
+            fixed = self.sample_geometry_parameters()
+            materials, scratch, edge_wear = self._sample_materials()
+        self.params = {
+            **params.model_dump(exclude={"seed"}),
+            "DoorRotation": fixed["DoorRotation"],
+            "BrandName": fixed["BrandName"],
+            **materials,
+        }
+        self.scratch = scratch
+        self.edge_wear = edge_wear
 
     def apply_parameters(
         self, params: BeverageFridgeParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.model_dump(
-            exclude={"seed", "scratch", "edge_wear"}, by_alias=False
-        )
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self._resolve_mesh_params(params)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):

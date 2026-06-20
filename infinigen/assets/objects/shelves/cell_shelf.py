@@ -1542,10 +1542,6 @@ class CellShelfParameters(AssetParameters):
     external_thickness: Annotated[
         float, Field(ge=0.025, le=0.055, json_schema_extra={"editable": True})
     ]
-    wood_material: Literal["black_wood", "white", "wood"] = Field(
-        json_schema_extra={"editable": False}
-    )
-    params: dict[str, Any] = Field(default_factory=dict, json_schema_extra={"editable": False})
 
 
 class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
@@ -1575,13 +1571,41 @@ class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
         params["Dimensions"][2] = params["vertical_cell_num"] * params["cell_size"]
         return params
 
+    def _build_mesh_params(self, params: CellShelfParameters) -> dict[str, Any]:
+        partial: dict[str, Any] = {}
+        partial["Dimensions"] = [
+            params.dimension_0,
+            params.dimension_1,
+            params.dimension_2,
+        ]
+        h_cell_num = int(partial["Dimensions"][1] / 0.35)
+        partial["cell_size"] = partial["Dimensions"][1] / h_cell_num
+        partial["horizontal_cell_num"] = h_cell_num
+        partial["vertical_cell_num"] = max(
+            int(partial["Dimensions"][2] / partial["cell_size"]), 1
+        )
+        partial["depth"] = partial["Dimensions"][0]
+        partial["has_base_frame"] = False
+        partial["Dimensions"][2] = (
+            partial["vertical_cell_num"] * partial["cell_size"]
+        )
+        partial["attachment_size"] = params.attachment_size
+        partial["division_board_thickness"] = params.division_thickness
+        partial["external_board_thickness"] = params.external_thickness
+        partial["has_backboard"] = False
+        partial["base_leg_height"] = 0.0
+        partial["base_leg_size"] = 0.0
+        partial["base_material"] = "white"
+        partial["tag_support"] = True
+        with FixedSeed(params.seed):
+            partial["wood_material"] = np.random.choice(
+                ["black_wood", "white", "wood"], p=[0.3, 0.2, 0.5]
+            )
+            return self.get_material_func(partial, randomness=True)
+
     def _sample_init_parameters(self, seed: int) -> CellShelfParameters:
         with FixedSeed(seed):
             partial = self._sample_dimension_params()
-            wood_material = np.random.choice(
-                ["black_wood", "white", "wood"], p=[0.3, 0.2, 0.5]
-            )
-            partial["wood_material"] = wood_material
             partial["attachment_size"] = np.clip(normal(0.05, 0.02), 0.02, 0.1)
             partial["division_board_thickness"] = np.clip(
                 normal(0.015, 0.005), 0.008, 0.022
@@ -1589,12 +1613,6 @@ class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
             partial["external_board_thickness"] = np.clip(
                 normal(0.04, 0.005), 0.028, 0.052
             )
-            partial["has_backboard"] = False
-            partial["base_leg_height"] = 0.0
-            partial["base_leg_size"] = 0.0
-            partial["base_material"] = "white"
-            partial["tag_support"] = True
-            full = self.get_material_func(partial, randomness=True)
         return CellShelfParameters(
             seed=seed,
             dimension_0=partial["Dimensions"][0],
@@ -1603,14 +1621,12 @@ class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
             attachment_size=partial["attachment_size"],
             division_thickness=partial["division_board_thickness"],
             external_thickness=partial["external_board_thickness"],
-            wood_material=wood_material,
-            params=full,
         )
 
     def apply_parameters(
         self, params: CellShelfParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.params
+        self.params = self._build_mesh_params(params)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:

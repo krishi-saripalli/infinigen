@@ -830,12 +830,12 @@ def geometry_plant_nodes(nw: NodeWrangler, **kwargs):
     )
 
 
-class LeafBananaTreeParameters(LegacyBridgeParameters):
+class LeafBananaTreeParameters(AssetParameters):
     pass
 
 
 class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
-    parameters_model: ClassVar[type[LegacyBridgeParameters]] = LeafBananaTreeParameters
+    parameters_model: ClassVar[type[AssetParameters]] = LeafBananaTreeParameters
 
     def __init__(self, factory_seed, coarse=False):
         super(LeafBananaTreeFactory, self).__init__(factory_seed, coarse=coarse)
@@ -849,14 +849,16 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> LeafBananaTreeParameters:
         inst = LeafBananaTreeFactory.__new__(LeafBananaTreeFactory)
         AssetFactory.__init__(inst, seed, self.coarse)
-        geom_kwargs = inst.update_params(**{})
-        return LeafBananaTreeParameters(seed=seed, **geom_kwargs)
+        self.geom_kwargs = inst.update_params(**{})
+        return LeafBananaTreeParameters(seed=seed)
 
     def apply_parameters(
         self, params: LeafBananaTreeParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
-        self.geom_kwargs = params.model_dump(exclude={"seed"})
+        if not hasattr(self, "geom_kwargs"):
+            with FixedSeed(params.seed):
+                self.geom_kwargs = self.update_params(**{})
+        self._use_fixed_spawn_draws = spawn_scope
 
     def get_leaf_contour(self, mode):
         if mode == "oval":

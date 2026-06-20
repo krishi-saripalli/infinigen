@@ -34,8 +34,6 @@ class BalloonParameters(AssetParameters):
     uniform_pressure_force: Annotated[
         float, Field(ge=10.0, le=20.0, json_schema_extra={"editable": True})
     ] = 15.0
-    material_gen: Any = Field(json_schema_extra={"editable": False})
-    surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class BalloonFactory(ParameterizedAssetFactory, AssetFactory):
@@ -52,17 +50,19 @@ class BalloonFactory(ParameterizedAssetFactory, AssetFactory):
         self._material_gen_override = material_gen
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> BalloonParameters:
+    def _sample_materials(self) -> tuple[Any, Any]:
         material_gen = self._material_gen_override
         if material_gen is None:
             material_gen = weighted_sample(material_assignments.decorative_metal)()
+        return material_gen, material_gen()
+
+    def _sample_init_parameters(self, seed: int) -> BalloonParameters:
+        self._material_gen, self._surface = self._sample_materials()
         return BalloonParameters(
             seed=seed,
             thickness=uniform(0.06, 0.1),
             rel_scale=uniform(0.2, 0.3) * 4,
             displace=uniform(0.02, 0.04),
-            material_gen=material_gen,
-            surface=material_gen(),
         )
 
     def _sample_spawn_parameters(
@@ -81,8 +81,10 @@ class BalloonFactory(ParameterizedAssetFactory, AssetFactory):
         self.thickness = params.thickness
         self.rel_scale = params.rel_scale
         self.displace = params.displace
-        self.material_gen = params.material_gen
-        self.surface = params.surface
+        if not hasattr(self, "_material_gen"):
+            self._material_gen, self._surface = self._sample_materials()
+        self.material_gen = self._material_gen
+        self.surface = self._surface
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.tension_stiffness = params.tension_stiffness

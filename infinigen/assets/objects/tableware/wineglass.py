@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -12,11 +12,7 @@ from numpy.random import uniform
 from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
-from infinigen.assets.objects.tableware.base import (
-    TablewareFactory,
-    apply_tableware_base,
-    sample_tableware_base,
-)
+from infinigen.assets.objects.tableware.base import TablewareFactory, sample_tableware_base
 from infinigen.assets.utils.draw import spin
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
@@ -42,14 +38,6 @@ class WineglassParameters(AssetParameters):
     z_bottom: Annotated[
         float, Field(ge=0.01, le=0.05, json_schema_extra={"editable": True})
     ] = 0.03
-    surface: Any = Field(json_schema_extra={"editable": False})
-    inside_surface: Any = Field(json_schema_extra={"editable": False})
-    guard_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    has_guard: bool = Field(default=False, json_schema_extra={"editable": False})
-    guard_depth: float = Field(default=0.01, json_schema_extra={"editable": False})
-    metal_color: str = Field(default="bw+natural", json_schema_extra={"editable": False})
 
 
 class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
@@ -61,12 +49,34 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
         self.has_guard = False
         self.init_legacy_parameters()
 
+    def _resolve_tableware(self, params: WineglassParameters) -> None:
+        base = sample_tableware_base(params.seed)
+        scratch_prob, edge_wear_prob = base["scratch_prob"], base["edge_wear_prob"]
+        self.surface = weighted_sample(material_assignments.glasses)()()
+        self.inside_surface = base["inside_surface"]
+        self.guard_surface = base["guard_surface"]
+        self.scratch = (
+            None
+            if params.scratch_draw > scratch_prob
+            else base["scratch_fn"]()
+        )
+        self.edge_wear = (
+            None
+            if params.edge_wear_draw > edge_wear_prob
+            else base["edge_wear_fn"]()
+        )
+        self.has_guard = False
+        self.guard_depth = base["guard_depth"]
+        self.metal_color = base["metal_color"]
+        self.lower_thresh = params.lower_thresh
+        self.scale = params.scale
+        self.thickness = params.thickness
+
     def _sample_init_parameters(self, seed: int) -> WineglassParameters:
         base = sample_tableware_base(seed)
-        z_length = log_uniform(0.6, 2.0)
         return WineglassParameters(
             seed=seed,
-            z_length=z_length,
+            z_length=log_uniform(0.6, 2.0),
             z_cup=uniform(0.3, 0.6),
             z_mid=uniform(0.3, 0.5),
             x_neck=log_uniform(0.01, 0.02),
@@ -77,22 +87,6 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
             lower_thresh=base["lower_thresh"],
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
-            surface=weighted_sample(material_assignments.glasses)()(),
-            inside_surface=base["inside_surface"],
-            guard_surface=base["guard_surface"],
-            scratch=(
-                None
-                if base["scratch_draw"] > base["scratch_prob"]
-                else base["scratch_fn"]()
-            ),
-            edge_wear=(
-                None
-                if base["edge_wear_draw"] > base["edge_wear_prob"]
-                else base["edge_wear_fn"]()
-            ),
-            has_guard=False,
-            guard_depth=base["guard_depth"],
-            metal_color=base["metal_color"],
         )
 
     def _sample_spawn_parameters(
@@ -103,7 +97,7 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
     def apply_parameters(
         self, params: WineglassParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_tableware_base(self, params)
+        self._resolve_tableware(params)
         self.z_length = params.z_length
         z_cup_abs = params.z_cup * params.z_length
         self.z_cup = z_cup_abs

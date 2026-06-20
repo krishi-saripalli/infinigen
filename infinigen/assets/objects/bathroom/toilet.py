@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -40,9 +40,6 @@ class ToiletParameters(AssetParameters):
     width_ratio: Annotated[float, Field(ge=0.7, le=0.8, json_schema_extra={"editable": True})]
     height_ratio: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": True})]
     size_mid: Annotated[float, Field(ge=0.6, le=0.65, json_schema_extra={"editable": True})]
-    curve_scale: tuple[float, float, float, float] = Field(
-        json_schema_extra={"editable": False}
-    )
     depth_ratio: Annotated[float, Field(ge=0.5, le=0.6, json_schema_extra={"editable": True})]
     tube_scale: Annotated[float, Field(ge=0.25, le=0.3, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.05, le=0.06, json_schema_extra={"editable": True})]
@@ -81,9 +78,6 @@ class ToiletParameters(AssetParameters):
     cover_rotation: Annotated[
         float, Field(ge=0.0, le=1.570796, json_schema_extra={"editable": True})
     ]
-    hardware_type: Literal["button", "handle"] = Field(
-        json_schema_extra={"editable": False}
-    )
     hardware_cap: Annotated[
         float, Field(ge=0.01, le=0.015, json_schema_extra={"editable": True})
     ]
@@ -100,10 +94,6 @@ class ToiletParameters(AssetParameters):
     edge_wear_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    surface: Any = Field(json_schema_extra={"editable": False})
-    hardware_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
@@ -113,11 +103,29 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> ToiletParameters:
+    def _sample_runtime(self) -> tuple[Any, Any, Any, Any, tuple[float, float, float, float], str]:
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
         scratch_draw = uniform()
         edge_wear_draw = uniform()
+        return (
+            weighted_sample(material_assignments.ceramics)(),
+            weighted_sample(material_assignments.metal_neutral)(),
+            None if scratch_draw > scratch_prob else scratch_fn(),
+            None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
+            log_uniform(0.8, 1.2, 4),
+            np.random.choice(["button", "handle"]),
+        )
+
+    def _sample_init_parameters(self, seed: int) -> ToiletParameters:
+        (
+            self._surface,
+            self._hardware_surface,
+            self._scratch,
+            self._edge_wear,
+            self._curve_scale,
+            self._hardware_type,
+        ) = self._sample_runtime()
         tank_cap_extrude_draw = uniform()
         return ToiletParameters(
             seed=seed,
@@ -125,7 +133,6 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
             width_ratio=uniform(0.7, 0.8),
             height_ratio=uniform(0.8, 0.9),
             size_mid=uniform(0.6, 0.65),
-            curve_scale=log_uniform(0.8, 1.2, 4),
             depth_ratio=uniform(0.5, 0.6),
             tube_scale=uniform(0.25, 0.3),
             thickness=uniform(0.05, 0.06),
@@ -146,27 +153,31 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
             tank_cap_extrude_draw=tank_cap_extrude_draw,
             tank_cap_extrude_amount=uniform(0.005, 0.01),
             cover_rotation=uniform(0, np.pi / 2),
-            hardware_type=np.random.choice(["button", "handle"]),
             hardware_cap=uniform(0.01, 0.015),
             hardware_radius=uniform(0.015, 0.02),
             hardware_length=uniform(0.04, 0.05),
             hardware_on_side_draw=uniform(),
-            scratch_draw=scratch_draw,
-            edge_wear_draw=edge_wear_draw,
-            surface=weighted_sample(material_assignments.ceramics)(),
-            hardware_surface=weighted_sample(material_assignments.metal_neutral)(),
-            scratch=None if scratch_draw > scratch_prob else scratch_fn(),
-            edge_wear=None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
+            scratch_draw=uniform(),
+            edge_wear_draw=uniform(),
         )
 
     def apply_parameters(
         self, params: ToiletParameters, *, spawn_scope: bool = True
     ) -> None:
+        if not hasattr(self, "_surface"):
+            (
+                self._surface,
+                self._hardware_surface,
+                self._scratch,
+                self._edge_wear,
+                self._curve_scale,
+                self._hardware_type,
+            ) = self._sample_runtime()
         self.size = params.size
         self.width = params.size * params.width_ratio
         self.height = params.size * params.height_ratio
         self.size_mid = params.size_mid
-        self.curve_scale = params.curve_scale
+        self.curve_scale = self._curve_scale
         self.depth = params.size * params.depth_ratio
         self.tube_scale = params.tube_scale
         self.thickness = params.thickness
@@ -190,15 +201,15 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
             else params.tank_cap_extrude_amount
         )
         self.cover_rotation = -params.cover_rotation
-        self.hardware_type = params.hardware_type
+        self.hardware_type = self._hardware_type
         self.hardware_cap = params.hardware_cap
         self.hardware_radius = params.hardware_radius
         self.hardware_length = params.hardware_length
         self.hardware_on_side = params.hardware_on_side_draw < 0.5
-        self.surface = params.surface
-        self.hardware_surface = params.hardware_surface
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self.surface = self._surface
+        self.hardware_surface = self._hardware_surface
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
         self._use_fixed_spawn_draws = spawn_scope
 
     @property

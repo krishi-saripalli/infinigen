@@ -156,7 +156,7 @@ class BananaMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         )
 
 
-class TaroMonocotParameters(LegacyBridgeParameters):
+class TaroMonocotParameters(AssetParameters):
     pass
 
 
@@ -177,25 +177,21 @@ def _taro_monocot_legacy_init(
 
 
 class TaroMonocotFactory(BananaMonocotFactory):
-    parameters_model: ClassVar[type[LegacyBridgeParameters]] = TaroMonocotParameters
+    parameters_model: ClassVar[type[AssetParameters]] = TaroMonocotParameters
 
     def __init__(self, factory_seed, coarse=False):
         AssetFactory.__init__(self, factory_seed, coarse)
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> TaroMonocotParameters:
-        return legacy_init_to_parameters(
-            TaroMonocotParameters,
-            TaroMonocotFactory,
-            seed,
-            self.coarse,
-            init_fn=_taro_monocot_legacy_init,
-        )
+        return TaroMonocotParameters(seed=seed)
 
     def apply_parameters(
         self, params: TaroMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _taro_monocot_legacy_init(self, params.seed, self.coarse)
+        self._use_fixed_spawn_draws = spawn_scope
 
     def displace_veins(self, obj):
         point_normal_up(obj)

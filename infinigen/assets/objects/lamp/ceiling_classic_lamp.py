@@ -428,7 +428,6 @@ class CeilingClassicLampParameters(AssetParameters):
         float, Field(ge=0.002, le=0.006, json_schema_extra={"editable": True})
     ]
     Amount: Annotated[int, Field(ge=1, le=7, json_schema_extra={"editable": True})]
-    light_factory: Any = Field(json_schema_extra={"editable": False})
 
 
 class CeilingClassicLampFactory(ParameterizedAssetFactory, AssetFactory):
@@ -439,6 +438,7 @@ class CeilingClassicLampFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> CeilingClassicLampParameters:
+        self.light_factory = PointLampFactory(seed)
         return CeilingClassicLampParameters(
             seed=seed,
             cable_length=uniform(0.6, 0.710),
@@ -448,17 +448,12 @@ class CeilingClassicLampFactory(ParameterizedAssetFactory, AssetFactory):
             bottom_radius=uniform(0.22, 0.35),
             Thickness=uniform(0.002, 0.006),
             Amount=randint(1, 8),
-            light_factory=PointLampFactory(seed),
         )
 
     def apply_parameters(
         self, params: CeilingClassicLampParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.model_dump(
-            exclude={"seed", "light_factory"},
-            by_alias=True,
-        )
-        self.light_factory = params.light_factory
+        self.params = params.model_dump(exclude={"seed"}, by_alias=True)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **_):

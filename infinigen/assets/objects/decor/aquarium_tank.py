@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -45,11 +45,6 @@ class AquariumTankParameters(AssetParameters):
     scale: Annotated[float, Field(ge=0.7, le=0.9, json_schema_extra={"editable": True})] = (
         0.8
     )
-    is_wet: bool = Field(default=False, json_schema_extra={"editable": False})
-    base_factory: Any = Field(json_schema_extra={"editable": False})
-    glass_surface: Any = Field(json_schema_extra={"editable": False})
-    belt_surface: Any = Field(json_schema_extra={"editable": False})
-    water_surface: Any = Field(json_schema_extra={"editable": False})
 
 
 class AquariumTankFactory(ParameterizedAssetFactory, AssetFactory):
@@ -75,19 +70,19 @@ class AquariumTankFactory(ParameterizedAssetFactory, AssetFactory):
         base_factory_fn = np.random.choice(
             self.wet_factories if is_wet else self.dry_factories
         )
+        self.is_wet = is_wet
+        self.base_factory = base_factory_fn(seed)
+        self.glass_surface = infinigen.assets.materials.ceramic.Glass()
+        self.belt_surface = weighted_sample(material_assignments.frame)()
+        self.water_surface = infinigen.assets.materials.fluid.Water()
         return AquariumTankParameters(
             seed=seed,
             is_wet_draw=is_wet_draw,
-            is_wet=is_wet,
-            base_factory=base_factory_fn(seed),
             width=log_uniform(0.5, 1),
             depth=log_uniform(0.5, 0.8),
             height=log_uniform(0.5, 1),
             thickness=uniform(0.01, 0.02),
             belt_thickness=log_uniform(0.02, 0.05),
-            glass_surface=infinigen.assets.materials.ceramic.Glass(),
-            belt_surface=weighted_sample(material_assignments.frame)(),
-            water_surface=infinigen.assets.materials.fluid.Water(),
         )
 
     def _sample_spawn_parameters(
@@ -98,16 +93,12 @@ class AquariumTankFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: AquariumTankParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.is_wet = params.is_wet
-        self.base_factory = params.base_factory
+        self.is_wet = params.is_wet_draw < 0.5
         self.width = params.width
         self.depth = params.depth
         self.height = params.height
         self.thickness = params.thickness
         self.belt_thickness = params.belt_thickness
-        self.glass_surface = params.glass_surface
-        self.belt_surface = params.belt_surface
-        self.water_surface = params.water_surface
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.scale = params.scale

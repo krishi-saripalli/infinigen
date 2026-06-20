@@ -20,13 +20,6 @@ from infinigen.core.util import blender as butil
 
 
 class LeafParameters(AssetParameters):
-    leaf_width: float = Field(default=0.5, json_schema_extra={"editable": False})
-    alpha: float = Field(default=0.3, json_schema_extra={"editable": False})
-    use_wave: bool = Field(default=True, json_schema_extra={"editable": False})
-    x_offset: float = Field(default=0.0, json_schema_extra={"editable": False})
-    flip_leaf: bool = Field(default=False, json_schema_extra={"editable": False})
-    z_scaling: float = Field(default=0.0, json_schema_extra={"editable": False})
-    width_rand: float = Field(default=0.33, json_schema_extra={"editable": False})
     width_noise: Annotated[
         float, Field(ge=-1.0, le=1.0, json_schema_extra={"editable": True})
     ] = 0.0
@@ -76,14 +69,15 @@ class LeafFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: LeafParameters, *, spawn_scope: bool = True
     ) -> None:
+        genome_override = self._genome_override or {}
         self.genome = {
-            "leaf_width": params.leaf_width,
-            "alpha": params.alpha,
-            "use_wave": params.use_wave,
-            "x_offset": params.x_offset,
-            "flip_leaf": params.flip_leaf,
-            "z_scaling": params.z_scaling,
-            "width_rand": params.width_rand,
+            "leaf_width": genome_override.get("leaf_width", 0.5),
+            "alpha": genome_override.get("alpha", 0.3),
+            "use_wave": genome_override.get("use_wave", True),
+            "x_offset": genome_override.get("x_offset", 0.0),
+            "flip_leaf": genome_override.get("flip_leaf", False),
+            "z_scaling": genome_override.get("z_scaling", 0.0),
+            "width_rand": genome_override.get("width_rand", 0.33),
         }
         self.width_noise = params.width_noise
         self.wave_height = params.wave_height

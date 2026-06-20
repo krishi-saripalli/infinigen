@@ -24,6 +24,7 @@ from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed, int_hash
 from infinigen.core.util.random import log_uniform
 
 from . import tentacles
@@ -54,11 +55,6 @@ class CoralParameters(AssetParameters):
     tentacle_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
-    scale_factors: tuple[float, float, float] = Field(
-        json_schema_extra={"editable": False}
-    )
-    factory: Any = Field(json_schema_extra={"editable": False})
-    material: Any = Field(json_schema_extra={"editable": False})
 
 
 class CoralFactory(ParameterizedAssetFactory, AssetFactory):
@@ -87,39 +83,49 @@ class CoralFactory(ParameterizedAssetFactory, AssetFactory):
         weights = np.array([0.15, 0.2, 0.15, 0.2, 0.2, 0.15, 0.2])
         return np.random.choice(factory_methods, p=weights / weights.sum())
 
+    def _init_factory_state(self, seed: int, base_hue: float) -> None:
+        with FixedSeed(seed):
+            factory_method = self._resolve_factory_method(self._init_factory_method)
+            self.factory = factory_method(seed, self.coarse)
+            self.build_base_hue()
+        self.base_hue = base_hue
+        self.material = surface.shaderfunc_to_material(self.shader_coral, base_hue)
+
     def _sample_init_parameters(self, seed: int) -> CoralParameters:
-        factory_method = self._resolve_factory_method(self._init_factory_method)
-        factory: BaseCoralFactory = factory_method(seed, self.coarse)
-        base_hue = self.build_base_hue()
-        material = surface.shaderfunc_to_material(self.shader_coral, base_hue)
+        with FixedSeed(seed):
+            factory_method = self._resolve_factory_method(self._init_factory_method)
+            factory: BaseCoralFactory = factory_method(seed, self.coarse)
+            base_hue = self.build_base_hue()
+            has_bump_draw = uniform()
+            tentacle_draw = uniform()
+        self.factory = factory
+        self.base_hue = base_hue
+        self.material = surface.shaderfunc_to_material(self.shader_coral, base_hue)
+        self._scale_factors = (1.0, 1.0, 1.0)
         return CoralParameters(
             seed=seed,
             base_hue=base_hue,
-            has_bump_draw=uniform(),
-            tentacle_draw=uniform(),
-            scale_factors=(1.0, 1.0, 1.0),
-            factory=factory,
-            material=material,
+            has_bump_draw=has_bump_draw,
+            tentacle_draw=tentacle_draw,
         )
 
     def _sample_spawn_parameters(
         self, params: CoralParameters, seed: int, i: int
     ) -> CoralParameters:
-        return params.model_copy(
-            update={"scale_factors": tuple(uniform(0.8, 1.2, 3))}
-        )
+        return params
 
     def apply_parameters(
         self, params: CoralParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.factory = params.factory
-        self.base_hue = params.base_hue
-        self.material = params.material
+        self._init_factory_state(params.seed, params.base_hue)
         self._has_bump_draw = params.has_bump_draw
         self._tentacle_draw = params.tentacle_draw
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
-            self._scale_factors = params.scale_factors
+            with FixedSeed(int_hash((params.seed, params.seed))):
+                self._scale_factors = tuple(uniform(0.8, 1.2, 3))
+        else:
+            self._scale_factors = (1.0, 1.0, 1.0)
 
     def create_asset(self, face_size=0.01, realize=True, **params):
         obj = self.factory.create_asset(**params)

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import bmesh
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
@@ -25,23 +25,19 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class CanParameters(AssetParameters):
     x_length: Annotated[float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})]
     z_length: Annotated[float, Field(ge=0.025, le=0.25, json_schema_extra={"editable": True})]
-    shape: Literal["circle", "rectangle"] = Field(json_schema_extra={"editable": False})
     skewness: Annotated[float, Field(ge=1.0, le=2.5, json_schema_extra={"editable": True})]
     texture_shared_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
     scratch_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
     edge_wear_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    surface: Any = Field(json_schema_extra={"editable": False})
-    wrap_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
     cap_scale: Annotated[
         float, Field(ge=0.96, le=0.98, json_schema_extra={"editable": True})
     ] = 0.97
@@ -66,28 +62,34 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> CanParameters:
-        x_length = log_uniform(0.05, 0.1)
+    def _resolve_wear(
+        self, scratch_draw: float, edge_wear_draw: float
+    ) -> tuple[object | None, object | None]:
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
-        scratch_draw = uniform()
-        edge_wear_draw = uniform()
-        wrap_surface = weighted_sample(material_assignments.graphicdesign)()()
-        if wrap_surface == text.Text:
-            wrap_surface = text.Text(seed, False)
+        scratch = None if scratch_draw > scratch_prob else scratch_fn()
+        edge_wear = None if edge_wear_draw > edge_wear_prob else edge_wear_fn()
+        return scratch, edge_wear
+
+    def _sample_internal_state(self, seed: int) -> None:
+        with FixedSeed(seed):
+            self.shape = np.random.choice(["circle", "rectangle"])
+            wrap_surface = weighted_sample(material_assignments.graphicdesign)()()
+            if wrap_surface == text.Text:
+                wrap_surface = text.Text(seed, False)
+            self.wrap_surface = wrap_surface
+            self.surface = weighted_sample(material_assignments.metals)()()
+
+    def _sample_init_parameters(self, seed: int) -> CanParameters:
+        x_length = log_uniform(0.05, 0.1)
         return CanParameters(
             seed=seed,
             x_length=x_length,
             z_length=x_length * log_uniform(0.5, 2.5),
-            shape=np.random.choice(["circle", "rectangle"]),
             skewness=uniform(1, 2.5) if uniform() < 0.5 else 1,
             texture_shared_draw=uniform(),
-            scratch_draw=scratch_draw,
-            edge_wear_draw=edge_wear_draw,
-            surface=weighted_sample(material_assignments.metals)()(),
-            wrap_surface=wrap_surface,
-            scratch=None if scratch_draw > scratch_prob else scratch_fn(),
-            edge_wear=None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
+            scratch_draw=uniform(),
+            edge_wear_draw=uniform(),
         )
 
     def _sample_spawn_parameters(
@@ -108,13 +110,12 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         self.x_length = params.x_length
         self.z_length = params.z_length
-        self.shape = params.shape
         self.skewness = params.skewness
         self.texture_shared = params.texture_shared_draw < 0.2
-        self.surface = params.surface
-        self.wrap_surface = params.wrap_surface
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        self._sample_internal_state(params.seed)
+        self.scratch, self.edge_wear = self._resolve_wear(
+            params.scratch_draw, params.edge_wear_draw
+        )
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.cap_scale = params.cap_scale

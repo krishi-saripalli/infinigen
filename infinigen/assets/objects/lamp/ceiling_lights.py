@@ -46,11 +46,6 @@ class CeilingLightParameters(AssetParameters):
     beveler_mult: Annotated[
         float, Field(ge=1.0, le=3.0, json_schema_extra={"editable": True})
     ]
-    BlackMaterial: Any = Field(json_schema_extra={"editable": False})
-    WhiteMaterial: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    light_factory: Any = Field(json_schema_extra={"editable": False})
 
 
 class CeilingLightFactory(ParameterizedAssetFactory, AssetFactory):
@@ -129,14 +124,14 @@ class CeilingLightFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_init_parameters(self, seed: int) -> CeilingLightParameters:
         geometry = self._sample_geometry(False, self.ceiling_light_default_params)
         materials, scratch, edge_wear = self._sample_materials()
+        self._mesh_materials = materials
+        self.scratch = scratch
+        self.edge_wear = edge_wear
+        self.light_factory = PointLampFactory(seed)
         return CeilingLightParameters(
             seed=seed,
             **geometry,
             beveler_mult=U(1, 3),
-            **materials,
-            scratch=scratch,
-            edge_wear=edge_wear,
-            light_factory=PointLampFactory(seed),
         )
 
     def apply_parameters(
@@ -149,12 +144,8 @@ class CeilingLightFactory(ParameterizedAssetFactory, AssetFactory):
             "Height": params.Height,
             "InnerHeight": params.Height * params.InnerHeight,
             "Curvature": params.Curvature,
-            "BlackMaterial": params.BlackMaterial,
-            "WhiteMaterial": params.WhiteMaterial,
+            **self._mesh_materials,
         }
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
-        self.light_factory = params.light_factory
         self.beveler = BevelSharp(mult=params.beveler_mult)
         self._use_fixed_spawn_draws = spawn_scope
 

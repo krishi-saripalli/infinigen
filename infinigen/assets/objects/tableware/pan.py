@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bmesh
 import bpy
@@ -27,7 +27,7 @@ from infinigen.core.placement.parameters import AssetParameters, ParameterizedAs
 from infinigen.core.util import blender as butil
 from infinigen.core.util.random import log_uniform
 
-from .base import TablewareFactory, apply_tableware_base, sample_tableware_base
+from .base import TablewareFactory, apply_tableware_from_draws, sample_tableware_base
 
 
 class PanParameters(AssetParameters):
@@ -73,13 +73,6 @@ class PanParameters(AssetParameters):
     hole_location_frac: Annotated[
         float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": True})
     ] = 0.8
-    surface: Any = Field(json_schema_extra={"editable": False})
-    inside_surface: Any = Field(json_schema_extra={"editable": False})
-    guard_surface: Any = Field(json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    has_guard: bool = Field(default=False, json_schema_extra={"editable": False})
-    metal_color: str | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 class PanFactory(ParameterizedAssetFactory, TablewareFactory):
@@ -123,13 +116,6 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
             lower_thresh=base["lower_thresh"],
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
-            surface=base["surface"],
-            inside_surface=base["inside_surface"],
-            guard_surface=base["guard_surface"],
-            scratch=None,
-            edge_wear=None,
-            has_guard=False,
-            metal_color=None,
         )
 
     def _sample_spawn_parameters(
@@ -149,7 +135,15 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
     def apply_parameters(
         self, params: PanParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_tableware_base(self, params)
+        apply_tableware_from_draws(
+            self,
+            seed=params.seed,
+            lower_thresh=params.lower_thresh,
+            scale=params.scale,
+            scratch_draw=params.scratch_draw,
+            edge_wear_draw=params.edge_wear_draw,
+            metal_color=None,
+        )
         self.r_expand = params.r_expand
         self.depth = params.depth
         self.r_mid = params.r_mid
@@ -161,7 +155,6 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
         self.has_guard = params.has_guard_draw < 0.8
         self.x_guard = params.r_expand + params.x_guard_extra * params.x_handle
         self.guard_depth = params.guard_depth_mult * params.thickness
-        self.metal_color = params.metal_color
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self._n = 4 * int(params.n_vertices)

@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import gin
@@ -23,6 +23,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
@@ -106,15 +107,6 @@ class OfficeChairParameters(AssetParameters):
         float, Field(alias="Top Mid Pos", json_schema_extra={"editable": True})
     ]
     height: Annotated[float, Field(alias="Height", json_schema_extra={"editable": True})]
-    top_height: float = Field(alias="Top Height", json_schema_extra={"editable": False})
-    leg_style: Literal["straight", "single_stand", "wheeled"] = Field(
-        alias="Leg Style", json_schema_extra={"editable": False}
-    )
-    leg_ngon: int = Field(alias="Leg NGon", json_schema_extra={"editable": False})
-    leg_placement_top_relative_scale: float = Field(
-        alias="Leg Placement Top Relative Scale",
-        json_schema_extra={"editable": False},
-    )
     leg_placement_bottom_relative_scale: Annotated[
         float,
         Field(
@@ -122,50 +114,6 @@ class OfficeChairParameters(AssetParameters):
             json_schema_extra={"editable": True},
         ),
     ]
-    leg_height: float = Field(alias="Leg Height", json_schema_extra={"editable": False})
-    leg_number: int | None = Field(
-        default=None, alias="Leg Number", json_schema_extra={"editable": False}
-    )
-    leg_diameter: float | None = Field(
-        default=None, alias="Leg Diameter", json_schema_extra={"editable": False}
-    )
-    leg_curve_control_points: list[tuple[float, float]] | None = Field(
-        default=None,
-        alias="Leg Curve Control Points",
-        json_schema_extra={"editable": False},
-    )
-    strecher_relative_pos: float | None = Field(
-        default=None,
-        alias="Strecher Relative Pos",
-        json_schema_extra={"editable": False},
-    )
-    strecher_increament: int | None = Field(
-        default=None, alias="Strecher Increament", json_schema_extra={"editable": False}
-    )
-    leg_pole_number: int | None = Field(
-        default=None, alias="Leg Pole Number", json_schema_extra={"editable": False}
-    )
-    leg_joint_height: float | None = Field(
-        default=None, alias="Leg Joint Height", json_schema_extra={"editable": False}
-    )
-    leg_wheel_arc_sweep_angle: float | None = Field(
-        default=None,
-        alias="Leg Wheel Arc Sweep Angle",
-        json_schema_extra={"editable": False},
-    )
-    leg_wheel_width: float | None = Field(
-        default=None, alias="Leg Wheel Width", json_schema_extra={"editable": False}
-    )
-    leg_wheel_rot: float | None = Field(
-        default=None, alias="Leg Wheel Rot", json_schema_extra={"editable": False}
-    )
-    leg_pole_length: float | None = Field(
-        default=None, alias="Leg Pole Length", json_schema_extra={"editable": False}
-    )
-    top_material: Any = Field(alias="TopMaterial", json_schema_extra={"editable": False})
-    leg_material: Any = Field(alias="LegMaterial", json_schema_extra={"editable": False})
-    scratch: Any | None = Field(default=None, json_schema_extra={"editable": False})
-    edge_wear: Any | None = Field(default=None, json_schema_extra={"editable": False})
 
 
 @gin.configurable
@@ -274,29 +222,64 @@ class OfficeChairFactory(ParameterizedAssetFactory, AssetFactory):
 
         return parameters, leg_style
 
+    def _build_geometry_params(
+        self, params: OfficeChairParameters
+    ) -> tuple[dict[str, Any], Any | None, Any | None]:
+        dimensions = (
+            self.dimensions
+            if self.dimensions is not None
+            else (params.top_profile_width, params.top_profile_width, params.height)
+        )
+        with FixedSeed(params.seed):
+            geometry, _ = self._sample_geometry_parameters(dimensions)
+        geometry["Top Profile Width"] = params.top_profile_width
+        geometry["Top Thickness"] = params.top_thickness
+        geometry["Top Front Relative Width"] = params.top_front_relative_width
+        geometry["Top Front Bent"] = params.top_front_bent
+        geometry["Top Seat Bent"] = params.top_seat_bent
+        geometry["Top Mid Bent"] = params.top_mid_bent
+        geometry["Top Mid Relative Width"] = params.top_mid_relative_width
+        geometry["Top Back Bent"] = params.top_back_bent
+        geometry["Top Back Relative Width"] = params.top_back_relative_width
+        geometry["Top Mid Pos"] = params.top_mid_pos
+        geometry["Height"] = params.height
+        geometry["Top Height"] = params.height - params.top_thickness
+        geometry["Leg Placement Bottom Relative Scale"] = (
+            params.leg_placement_bottom_relative_scale
+        )
+        with FixedSeed(params.seed):
+            materials, scratch, edge_wear = self._sample_materials()
+        return {**geometry, **materials}, scratch, edge_wear
+
     def _sample_init_parameters(self, seed: int) -> OfficeChairParameters:
         geometry, _ = self._sample_geometry_parameters(self.dimensions)
-        materials, scratch, edge_wear = self._sample_materials()
         return OfficeChairParameters.model_validate(
             {
                 "seed": seed,
-                "scratch": scratch,
-                "edge_wear": edge_wear,
-                **geometry,
-                **materials,
+                "Top Profile Width": geometry["Top Profile Width"],
+                "Top Thickness": geometry["Top Thickness"],
+                "Top Front Relative Width": geometry["Top Front Relative Width"],
+                "Top Front Bent": geometry["Top Front Bent"],
+                "Top Seat Bent": geometry["Top Seat Bent"],
+                "Top Mid Bent": geometry["Top Mid Bent"],
+                "Top Mid Relative Width": geometry["Top Mid Relative Width"],
+                "Top Back Bent": geometry["Top Back Bent"],
+                "Top Back Relative Width": geometry["Top Back Relative Width"],
+                "Top Mid Pos": geometry["Top Mid Pos"],
+                "Height": geometry["Height"],
+                "Leg Placement Bottom Relative Scale": geometry[
+                    "Leg Placement Bottom Relative Scale"
+                ],
             }
         )
 
     def apply_parameters(
         self, params: OfficeChairParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.model_dump(
-            exclude={"seed", "scratch", "edge_wear"},
-            by_alias=True,
-            exclude_none=True,
-        )
-        self.scratch = params.scratch
-        self.edge_wear = params.edge_wear
+        geometry, scratch, edge_wear = self._build_geometry_params(params)
+        self.params = {k: v for k, v in geometry.items() if v is not None}
+        self.scratch = scratch
+        self.edge_wear = edge_wear
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):

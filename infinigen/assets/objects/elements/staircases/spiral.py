@@ -33,7 +33,7 @@ from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
-class SpiralStaircaseParameters(LegacyBridgeParameters):
+class SpiralStaircaseParameters(AssetParameters):
     pass
 
 
@@ -52,7 +52,7 @@ def _spiral_staircase_legacy_init(
 
 
 class SpiralStaircaseFactory(CurvedStaircaseFactory):
-    parameters_model: ClassVar[type[LegacyBridgeParameters]] = SpiralStaircaseParameters
+    parameters_model: ClassVar[type[AssetParameters]] = SpiralStaircaseParameters
     support_types = "column"
 
     def __init__(self, factory_seed, coarse=False, constants=None):
@@ -61,19 +61,19 @@ class SpiralStaircaseFactory(CurvedStaircaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> SpiralStaircaseParameters:
-        return legacy_init_to_parameters(
-            SpiralStaircaseParameters,
-            SpiralStaircaseFactory,
-            seed,
-            self.coarse,
-            init_fn=_spiral_staircase_legacy_init,
-            constants=self._init_constants,
-        )
+        return SpiralStaircaseParameters(seed=seed)
 
     def apply_parameters(
         self, params: SpiralStaircaseParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _spiral_staircase_legacy_init(
+                self,
+                params.seed,
+                self.coarse,
+                constants=self._init_constants,
+            )
+        self._use_fixed_spawn_draws = spawn_scope
 
     def build_size_config(self):
         while True:
