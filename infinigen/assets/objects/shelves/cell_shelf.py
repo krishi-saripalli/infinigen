@@ -3,9 +3,14 @@
 
 # Authors: Beining Han
 
+from __future__ import annotations
+
+from typing import Annotated, Any, ClassVar, Literal
+
 import bpy
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.materials.wood.plywood import (
@@ -21,6 +26,7 @@ from infinigen.core import surface, tagging
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
@@ -1517,9 +1523,37 @@ class CellShelfBaseFactory(AssetFactory):
         return obj
 
 
-class CellShelfFactory(CellShelfBaseFactory):
-    def sample_params(self):
-        params = dict()
+class CellShelfParameters(AssetParameters):
+    dimension_0: Annotated[
+        float, Field(ge=0.3, le=0.45, json_schema_extra={"editable": True})
+    ]
+    dimension_1: Annotated[
+        float, Field(ge=0.7, le=2.1, json_schema_extra={"editable": True})
+    ]
+    dimension_2: Annotated[
+        float, Field(ge=0.35, le=2.1, json_schema_extra={"editable": True})
+    ]
+    attachment_size: Annotated[
+        float, Field(ge=-0.01, le=0.11, json_schema_extra={"editable": True})
+    ]
+    division_thickness: Annotated[
+        float, Field(ge=0.0, le=0.03, json_schema_extra={"editable": True})
+    ]
+    external_thickness: Annotated[
+        float, Field(ge=0.025, le=0.055, json_schema_extra={"editable": True})
+    ]
+
+
+class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = CellShelfParameters
+
+    def __init__(self, factory_seed, coarse=False):
+        AssetFactory.__init__(self, factory_seed, coarse=coarse)
+        self.init_legacy_parameters()
+
+    @staticmethod
+    def _sample_dimension_params() -> dict[str, Any]:
+        params: dict[str, Any] = {}
         params["Dimensions"] = (
             uniform(0.3, 0.45),
             uniform(2 * 0.35, 6 * 0.35),
@@ -1536,6 +1570,64 @@ class CellShelfFactory(CellShelfBaseFactory):
         params["Dimensions"] = list(params["Dimensions"])
         params["Dimensions"][2] = params["vertical_cell_num"] * params["cell_size"]
         return params
+
+    def _build_mesh_params(self, params: CellShelfParameters) -> dict[str, Any]:
+        partial: dict[str, Any] = {}
+        partial["Dimensions"] = [
+            params.dimension_0,
+            params.dimension_1,
+            params.dimension_2,
+        ]
+        h_cell_num = int(partial["Dimensions"][1] / 0.35)
+        partial["cell_size"] = partial["Dimensions"][1] / h_cell_num
+        partial["horizontal_cell_num"] = h_cell_num
+        partial["vertical_cell_num"] = max(
+            int(partial["Dimensions"][2] / partial["cell_size"]), 1
+        )
+        partial["depth"] = partial["Dimensions"][0]
+        partial["has_base_frame"] = False
+        partial["Dimensions"][2] = (
+            partial["vertical_cell_num"] * partial["cell_size"]
+        )
+        partial["attachment_size"] = params.attachment_size
+        partial["division_board_thickness"] = params.division_thickness
+        partial["external_board_thickness"] = params.external_thickness
+        partial["has_backboard"] = False
+        partial["base_leg_height"] = 0.0
+        partial["base_leg_size"] = 0.0
+        partial["base_material"] = "white"
+        partial["tag_support"] = True
+        with FixedSeed(params.seed):
+            partial["wood_material"] = np.random.choice(
+                ["black_wood", "white", "wood"], p=[0.3, 0.2, 0.5]
+            )
+            return self.get_material_func(partial, randomness=True)
+
+    def _sample_init_parameters(self, seed: int) -> CellShelfParameters:
+        with FixedSeed(seed):
+            partial = self._sample_dimension_params()
+            partial["attachment_size"] = np.clip(normal(0.05, 0.02), 0.02, 0.1)
+            partial["division_board_thickness"] = np.clip(
+                normal(0.015, 0.005), 0.008, 0.022
+            )
+            partial["external_board_thickness"] = np.clip(
+                normal(0.04, 0.005), 0.028, 0.052
+            )
+        return CellShelfParameters(
+            seed=seed,
+            dimension_0=partial["Dimensions"][0],
+            dimension_1=partial["Dimensions"][1],
+            dimension_2=partial["Dimensions"][2],
+            attachment_size=partial["attachment_size"],
+            division_thickness=partial["division_board_thickness"],
+            external_thickness=partial["external_board_thickness"],
+        )
+
+    def apply_parameters(
+        self, params: CellShelfParameters, *, spawn_scope: bool = True
+    ) -> None:
+        self.params = self._build_mesh_params(params)
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:
         x, y, z = (
@@ -1556,11 +1648,27 @@ class CellShelfFactory(CellShelfBaseFactory):
         )
 
 
+class TVStandParameters(CellShelfParameters):
+    dimension_2: Annotated[
+        float, Field(ge=0.3, le=2.1, json_schema_extra={"editable": True})
+    ]
+
+
 class TVStandFactory(CellShelfFactory):
-    def sample_params(
-        self,
-    ):  # TODO HACK copied code just following the pattern to get this working
-        params = dict()
+    parameters_model: ClassVar[type[AssetParameters]] = TVStandParameters
+
+    def _sample_init_parameters(self, seed: int) -> TVStandParameters:
+        params = super()._sample_init_parameters(seed)
+        return TVStandParameters(**params.model_dump())
+
+    def apply_parameters(
+        self, params: TVStandParameters, *, spawn_scope: bool = True
+    ) -> None:
+        super().apply_parameters(params, spawn_scope=spawn_scope)
+
+    @staticmethod
+    def _sample_dimension_params() -> dict[str, Any]:
+        params: dict[str, Any] = {}
         params["Dimensions"] = (
             uniform(0.3, 0.45),
             uniform(2 * 0.35, 6 * 0.35),

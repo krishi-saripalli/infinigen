@@ -4,7 +4,10 @@
 # Authors: Alexander Raistrick
 
 
+from __future__ import annotations
+
 import logging
+from typing import ClassVar
 
 import bpy
 import gin
@@ -24,6 +27,10 @@ from infinigen.assets.objects.creatures.util.boid_swarm import BoidSwarmFactory
 from infinigen.assets.objects.creatures.util.creature_util import offset_center
 from infinigen.assets.objects.creatures.util.genome import Joint
 from infinigen.core.placement.factory import AssetFactory, make_asset_collection
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.math import FixedSeed, clip_gaussian, lerp
 from infinigen.core.util.random import weighted_sample
@@ -122,17 +129,31 @@ def beetle_genome():
     )
 
 
+class BeetleParameters(AssetParameters):
+    pass
+
+
 @gin.configurable
-class BeetleFactory(AssetFactory):
+class BeetleFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = BeetleParameters
+
     def __init__(
         self, factory_seed=None, bvh=None, coarse=False, animation_mode=None, **kwargs
     ):
         super().__init__(factory_seed, coarse)
         self.bvh = bvh
         self.animation_mode = animation_mode
+        self.init_legacy_parameters()
 
-        with FixedSeed(factory_seed):
+    def _sample_init_parameters(self, seed: int) -> BeetleParameters:
+        return BeetleParameters(seed=seed)
+
+    def apply_parameters(
+        self, params: BeetleParameters, *, spawn_scope: bool = True
+    ) -> None:
+        with FixedSeed(params.seed):
             self.body_material = weighted_sample(material_assignments.beetle)()
+        self._use_fixed_spawn_draws = spawn_scope
 
     def apply_materials(self, obj):
         self.body_material.apply(joining.get_parts(obj))

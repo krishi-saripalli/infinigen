@@ -6,24 +6,70 @@
 # - Lingjie Mei
 # - Karhan Kayan: fix constants
 
+from __future__ import annotations
+
+from typing import ClassVar
+
 import bpy
 import numpy as np
 
 import infinigen.core.util.blender as butil
 from infinigen.assets.utils.decorate import read_co, write_attribute, write_co
 from infinigen.assets.utils.object import new_cube, new_line
+from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    LegacyBridgeParameters,
+    ParameterizedAssetFactory,
+    apply_bridge_parameters,
+    legacy_init_to_parameters,
+)
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 from .straight import StraightStaircaseFactory
 
 
+class UShapedStaircaseParameters(AssetParameters):
+    pass
+
+
+def _ushaped_staircase_legacy_init(
+    inst: UShapedStaircaseFactory,
+    seed: int,
+    coarse: bool,
+    constants=None,
+) -> None:
+    from .straight import _straight_staircase_legacy_init
+
+    inst._init_constants = constants
+    _straight_staircase_legacy_init(inst, seed, coarse, constants)
+    with FixedSeed(seed):
+        inst.m = inst.n // 2
+        inst.is_rail_circular = True
+
+
 class UShapedStaircaseFactory(StraightStaircaseFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = UShapedStaircaseParameters
+
     def __init__(self, factory_seed, coarse=False, constants=None):
-        super(UShapedStaircaseFactory, self).__init__(factory_seed, coarse, constants)
-        with FixedSeed(self.factory_seed):
-            self.m = self.n // 2
-            self.is_rail_circular = True
+        self._init_constants = constants
+        AssetFactory.__init__(self, factory_seed, coarse)
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> UShapedStaircaseParameters:
+        return UShapedStaircaseParameters(seed=seed)
+
+    def apply_parameters(
+        self, params: UShapedStaircaseParameters, *, spawn_scope: bool = True
+    ) -> None:
+        with FixedSeed(params.seed):
+            _ushaped_staircase_legacy_init(
+                self,
+                params.seed,
+                self.coarse,
+                constants=self._init_constants,
+            )
+        self._use_fixed_spawn_draws = spawn_scope
 
     def build_size_config(self):
         self.n = int(np.random.randint(13, 21) / 2) * 2
