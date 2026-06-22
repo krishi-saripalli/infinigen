@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, ClassVar, Self, TypeVar
 
+import numpy as np
 import bpy
 from annotated_types import Ge, Le
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,7 +33,7 @@ def _is_editable(field_info: Any) -> bool:
 
 
 class AssetParameters(BaseModel):
-    """Base Pydantic model for explicit, perturbable generator parameters."""
+    """Base Pydantic model for explicit, editable generator parameters."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
@@ -52,27 +53,38 @@ class AssetParameters(BaseModel):
             if name != "seed" and cls.is_editable(name)
         )
 
-    def perturb(
-        self, field: str, unit_delta: float = 0.2
-    ) -> tuple[Self, dict[str, float]]:
+    def sweep(
+        self, field: str, n_steps: int = 11
+    ) -> tuple[list[float], list[Any]]:
+        """Return (unit_values, native_values) for a uniform quantile sweep of a field."""
         if field not in self.model_fields:
             raise KeyError(field)
-        if not self.is_editable(field):
-            raise ValueError(f"{field} is not editable")
         bounds = _field_bounds(self.model_fields[field])
         if bounds is None:
-            raise ValueError(f"{field} has no numeric bounds for perturbation")
+            raise ValueError(f"{field} has no numeric bounds for sweep")
         low, high = bounds
         current = getattr(self, field)
-        if high == low:
-            unit = 0.0
+        unit_values = np.linspace(0.0, 1.0, n_steps).tolist()
+
+        if isinstance(current, int):
+            native_values = [int(round(low + u * (high - low))) for u in unit_values]
         else:
-            unit = (float(current) - low) / (high - low)
-        unit = max(0.0, min(1.0, unit + unit_delta))
-        new_value: float | int = low + unit * (high - low)
+            native_values = [low + u * (high - low) for u in unit_values]
+        return unit_values, native_values
+
+    def edit(self, field: str, unit_value: float) -> Self:
+        """Return a new instance with field set from a unit-space value in [0, 1]."""
+        if field not in self.model_fields:
+            raise KeyError(field)
+        bounds = _field_bounds(self.model_fields[field])
+        if bounds is None:
+            raise ValueError(f"{field} has no numeric bounds for edit")
+        low, high = bounds
+        current = getattr(self, field)
+        new_value: float | int = low + unit_value * (high - low)
         if isinstance(current, int):
             new_value = int(round(new_value))
-        return self.model_copy(update={field: new_value}), {field: unit_delta}
+        return self.model_copy(update={field : new_value})
 
 
 class LegacyBridgeParameters(AssetParameters):
