@@ -21,13 +21,12 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
 class BalloonParameters(AssetParameters):
-    thickness: Annotated[float, Field(ge=0.06, le=0.1, json_schema_extra={"editable": True})]
-    rel_scale: Annotated[float, Field(ge=0.8, le=1.2, json_schema_extra={"editable": True})]
-    displace: Annotated[float, Field(ge=0.02, le=0.04, json_schema_extra={"editable": True})]
+    thickness: Annotated[float, Field(ge=0.06, le=0.1, json_schema_extra={"editable": False})]
     tension_stiffness: Annotated[
         float, Field(ge=0.0, le=5.0, json_schema_extra={"editable": True})
     ] = 0.0
@@ -56,31 +55,35 @@ class BalloonFactory(ParameterizedAssetFactory, AssetFactory):
             material_gen = weighted_sample(material_assignments.decorative_metal)()
         return material_gen, material_gen()
 
+    def _sample_spawn_field_updates(self) -> dict[str, float]:
+        return {
+            "tension_stiffness": uniform(0, 5),
+            "uniform_pressure_force": uniform(10, 20),
+        }
+
     def _sample_init_parameters(self, seed: int) -> BalloonParameters:
         self._material_gen, self._surface = self._sample_materials()
         return BalloonParameters(
             seed=seed,
             thickness=uniform(0.06, 0.1),
-            rel_scale=uniform(0.2, 0.3) * 4,
-            displace=uniform(0.02, 0.04),
+            **self._sample_spawn_field_updates(),
         )
 
     def _sample_spawn_parameters(
         self, params: BalloonParameters, seed: int, i: int
     ) -> BalloonParameters:
-        return params.model_copy(
-            update={
-                "tension_stiffness": uniform(0, 5),
-                "uniform_pressure_force": uniform(10, 20),
-            }
-        )
+        return params.model_copy(update=self._sample_spawn_field_updates())
 
     def apply_parameters(
         self, params: BalloonParameters, *, spawn_scope: bool = True
     ) -> None:
+        # NOTE: rel_scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.rel_scale = uniform(0.2, 0.3) * 4
         self.thickness = params.thickness
-        self.rel_scale = params.rel_scale
-        self.displace = params.displace
+        # NOTE: displace runs after the cloth sim and does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.displace = uniform(0.02, 0.04)
         if not hasattr(self, "_material_gen"):
             self._material_gen, self._surface = self._sample_materials()
         self.material_gen = self._material_gen

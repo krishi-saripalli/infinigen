@@ -3,8 +3,13 @@
 
 # Authors: Beining Han
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.objects.tropic_plants.tropic_plant_utils import (
     nodegroup_nodegroup_leaf_gen,
@@ -17,6 +22,10 @@ from infinigen.assets.objects.tropic_plants.tropic_plant_utils import (
 from infinigen.core import surface
 from infinigen.core.nodes import Nodes, NodeWrangler, node_utils
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.color import hsv2rgba
 
@@ -894,7 +903,7 @@ def geometry_palm_tree_leaf_nodes(nw: NodeWrangler, **kwargs):
     )
 
     leaf_scale = nw.new_node(Nodes.Value, label="leaf_scale")
-    leaf_scale.outputs[0].default_value = uniform(0.5, 0.7)
+    leaf_scale.outputs[0].default_value = kwargs.get("leaf_instance_scale", uniform(0.5, 0.7))
 
     leaf_on_stem = nw.new_node(
         nodegroup_leaf_on_stem(kwargs["versions"]).name,
@@ -932,11 +941,35 @@ def geometry_palm_tree_leaf_nodes(nw: NodeWrangler, **kwargs):
     )
 
 
-class LeafPalmTreeFactory(AssetFactory):
+class LeafPalmTreeParameters(AssetParameters):
+    leaf_x_curvature: Annotated[
+        float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": False})
+    ] = 0.4
+    leaf_instance_curvature_ratio: Annotated[
+        float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})
+    ] = 0.45
+    leaf_instance_width: Annotated[
+        float, Field(ge=0.07, le=0.15, json_schema_extra={"editable": False})
+    ] = 0.11
+    plant_z_rotate: Annotated[
+        float, Field(ge=-0.4, le=0.4, json_schema_extra={"editable": False})
+    ] = 0.0
+    plant_scale: Annotated[
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
+    ] = 1.15
+    leaf_instance_scale: Annotated[
+        float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": False})
+    ] = 0.6
+
+
+class LeafPalmTreeFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = LeafPalmTreeParameters
+
     def __init__(self, factory_seed, coarse=False):
         super(LeafPalmTreeFactory, self).__init__(factory_seed, coarse=coarse)
+        self.init_legacy_parameters()
 
-    def update_params(self, params):
+    def update_params(self, **params):
         if params.get("leaf_x_curvature", None) is None:
             params["leaf_x_curvature"] = uniform(0.0, 0.8)
         if params.get("leaf_instance_curvature_ratio", None) is None:
@@ -956,7 +989,41 @@ class LeafPalmTreeFactory(AssetFactory):
         if params.get("plant_scale", None) is None:
             s = uniform(0.8, 1.5)
             params["plant_scale"] = (s, s, s)
+        if params.get("leaf_instance_scale", None) is None:
+            params["leaf_instance_scale"] = uniform(0.5, 0.7)
         return params
+
+    def _sample_init_parameters(self, seed: int) -> LeafPalmTreeParameters:
+        return LeafPalmTreeParameters(seed=seed)
+
+    def _sample_spawn_parameters(
+        self, params: LeafPalmTreeParameters, seed: int, i: int
+    ) -> LeafPalmTreeParameters:
+        return params.model_copy(
+            update={
+                "leaf_x_curvature": uniform(0.0, 0.8),
+                "leaf_instance_curvature_ratio": uniform(0.3, 0.6),
+                "leaf_instance_width": uniform(0.07, 0.15),
+                "plant_z_rotate": uniform(-0.4, 0.4),
+                "plant_scale": uniform(0.8, 1.5),
+                "leaf_instance_scale": uniform(0.5, 0.7),
+            }
+        )
+
+    def apply_parameters(
+        self, params: LeafPalmTreeParameters, *, spawn_scope: bool = True
+    ) -> None:
+        s = params.plant_scale
+        self.geom_kwargs = self.update_params(
+            leaf_x_curvature=params.leaf_x_curvature,
+            leaf_instance_curvature_ratio=params.leaf_instance_curvature_ratio,
+            leaf_instance_width=params.leaf_instance_width,
+            plant_translation=(0.0, 0.0, 0.0),
+            plant_z_rotate=params.plant_z_rotate,
+            plant_scale=(s, s, s),
+            leaf_instance_scale=params.leaf_instance_scale,
+        )
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, params={}, **kwargs):
         bpy.ops.mesh.primitive_plane_add(
@@ -968,13 +1035,16 @@ class LeafPalmTreeFactory(AssetFactory):
         )
         obj = bpy.context.active_object
 
-        params = self.update_params(params)
+        if self._use_fixed_spawn_draws:
+            geom_params = self.geom_kwargs
+        else:
+            geom_params = self.update_params(**params)
         surface.add_geomod(
             obj,
             geometry_palm_tree_leaf_nodes,
             apply=True,
             attributes=["Attribute", "Coordinate", "subvein offset", "vein"],
-            input_kwargs=params,
+            input_kwargs=geom_params,
         )
         surface.add_material(obj, shader_leaf_material, selection=None)
 

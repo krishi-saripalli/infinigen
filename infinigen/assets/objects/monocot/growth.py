@@ -83,6 +83,13 @@ class MonocotGrowthFactory(AssetFactory):
     def build_leaf(self, face_size):
         raise NotImplementedError
 
+    def _cache_decor_state(self, seed: int) -> None:
+        with FixedSeed(seed):
+            self._decor_twist_angle = uniform(-self.twist_angle, self.twist_angle)
+            self._decor_bend_angle = uniform(0, self.bend_angle)
+            self._decor_scale_xy = (uniform(0.8, 1.2), uniform(0.8, 1.2))
+            self._decor_rot_z = uniform(0, np.pi * 2)
+
     @staticmethod
     def decorate_leaf(
         obj,
@@ -258,21 +265,31 @@ class MonocotGrowthFactory(AssetFactory):
     def decorate_monocot(self, obj):
         displace_vertices(obj, lambda x, y, z: (0, 0, -self.z_drag * (x * x + y * y)))
         surface.add_geomod(obj, geo_extension, apply=True, input_args=[0.4])
+        if getattr(self, "_use_fixed_spawn_draws", True):
+            twist_angle = self._decor_twist_angle
+            bend_angle = self._decor_bend_angle
+            scale_xy = self._decor_scale_xy
+            rot_z = self._decor_rot_z
+        else:
+            twist_angle = uniform(-self.twist_angle, self.twist_angle)
+            bend_angle = uniform(0, self.bend_angle)
+            scale_xy = (uniform(0.8, 1.2), uniform(0.8, 1.2))
+            rot_z = uniform(0, np.pi * 2)
         butil.modify_mesh(
             obj,
             "SIMPLE_DEFORM",
             deform_method="TWIST",
-            angle=uniform(-self.twist_angle, self.twist_angle),
+            angle=twist_angle,
             deform_axis="Z",
         )
         butil.modify_mesh(
             obj,
             "SIMPLE_DEFORM",
             deform_method="BEND",
-            angle=uniform(0, self.bend_angle),
+            angle=bend_angle,
         )
-        obj.scale = uniform(0.8, 1.2), uniform(0.8, 1.2), self.z_scale
-        obj.rotation_euler[-1] = uniform(0, np.pi * 2)
+        obj.scale = scale_xy[0], scale_xy[1], self.z_scale
+        obj.rotation_euler[-1] = rot_z
         butil.apply_transform(obj)
         assign_material(obj, self.material)
 

@@ -4,9 +4,14 @@
 # Authors: Beining Han
 # Acknowledgement: This file draws inspiration from https://www.youtube.com/watch?v=61Sk8j1Ml9c by BradleyAnimation
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.materials.plant import (
     simple_brownish,
@@ -17,6 +22,10 @@ from infinigen.core import surface
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.tagging import tag_nodegroup, tag_object
 
 
@@ -857,7 +866,7 @@ def geometry_dandelion_nodes(nw: NodeWrangler, **kwargs):
     )
 
     value_2 = nw.new_node(Nodes.Value)
-    value_2.outputs[0].default_value = uniform(-0.15, -0.5)
+    value_2.outputs[0].default_value = kwargs.get("flower_scale", uniform(-0.15, -0.5))
 
     transform_3 = nw.new_node(
         Nodes.Transform,
@@ -900,21 +909,63 @@ def geometry_dandelion_seed_nodes(nw: NodeWrangler, **kwargs):
     )
 
 
-class DandelionFactory(AssetFactory):
+_DANDELION_MODE_THRESHOLDS = (0.4, 0.44, 0.67, 0.8, 1.0)
+_DANDELION_MODES = (
+    "full_flower",
+    "no_flower",
+    "top_half_flower",
+    "top_missing_flower",
+    "sparse_flower",
+)
+
+
+class DandelionParameters(AssetParameters):
+    mode_draw: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": [
+                    "full_flower",
+                    "no_flower",
+                    "top_half_flower",
+                    "top_missing_flower",
+                    "sparse_flower",
+                ],
+            }
+        ),
+    ] = "full_flower"
+    random_dropout: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 0.75
+    row_less_than: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 0.0
+    row_great_than: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 0.0
+    col_less_than: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 0.0
+    col_great_than: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 0.0
+    flower_scale: Annotated[
+        float, Field(ge=-0.5, le=-0.15, json_schema_extra={"editable": False})
+    ] = -0.3
+
+
+class DandelionFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = DandelionParameters
+
     def __init__(self, factory_seed, coarse=False):
         super(DandelionFactory, self).__init__(factory_seed, coarse=coarse)
-        self.flower_mode = [
-            "full_flower",
-            "no_flower",
-            "top_half_flower",
-            "top_missing_flower",
-            "sparse_flower",
-        ]
-        self.flower_mode_pb = [0.4, 0.04, 0.23, 0.13, 0.2]
+        self.init_legacy_parameters()
 
-    def get_mode_params(self, mode):
+    @classmethod
+    def _sample_mode_params(cls, mode: str) -> dict[str, float]:
         if mode == "full_flower":
-            # generate a flower with full seeds
             return {
                 "random_dropout": uniform(0.5, 1.0),
                 "row_less_than": 0.0,
@@ -922,8 +973,7 @@ class DandelionFactory(AssetFactory):
                 "col_less_than": 0.0,
                 "col_great_than": 0.0,
             }
-        elif mode == "no_flower":
-            # generate a flower with no seeds
+        if mode == "no_flower":
             return {
                 "random_dropout": 0.0,
                 "row_less_than": 1.0,
@@ -931,8 +981,7 @@ class DandelionFactory(AssetFactory):
                 "col_less_than": 1.0,
                 "col_great_than": 0.0,
             }
-        elif mode == "top_half_flower":
-            # generate a flower with no seeds at bottom half
+        if mode == "top_half_flower":
             return {
                 "random_dropout": uniform(0.6, 1.0),
                 "row_less_than": uniform(0.3, 0.5),
@@ -940,8 +989,7 @@ class DandelionFactory(AssetFactory):
                 "col_less_than": 1.0,
                 "col_great_than": 0.0,
             }
-        elif mode == "top_missing_flower":
-            # generate a flower with no seeds at bottom half
+        if mode == "top_missing_flower":
             col = uniform(0.3, 1.0)
             return {
                 "random_dropout": uniform(0.5, 0.9),
@@ -950,17 +998,59 @@ class DandelionFactory(AssetFactory):
                 "col_less_than": col,
                 "col_great_than": col - uniform(0.2, 0.4),
             }
-        elif mode == "sparse_flower":
-            # generate a flower with no seeds at bottom half
-            return {
-                "random_dropout": uniform(0.3, 0.5),
-                "row_less_than": 0.0,
-                "row_great_than": 0.0,
-                "col_less_than": 0.0,
-                "col_great_than": 0.0,
+        return {
+            "random_dropout": uniform(0.3, 0.5),
+            "row_less_than": 0.0,
+            "row_great_than": 0.0,
+            "col_less_than": 0.0,
+            "col_great_than": 0.0,
+        }
+
+    @classmethod
+    def _build_geom_kwargs(cls, params: DandelionParameters) -> dict[str, float]:
+        return {
+            "random_dropout": params.random_dropout,
+            "row_less_than": params.row_less_than,
+            "row_great_than": params.row_great_than,
+            "col_less_than": params.col_less_than,
+            "col_great_than": params.col_great_than,
+            "flower_scale": params.flower_scale,
+        }
+
+    def _sample_init_parameters(self, seed: int) -> DandelionParameters:
+        mode = str(np.random.choice(_DANDELION_MODES))
+        mode_params = self._sample_mode_params(mode)
+        return DandelionParameters(
+            seed=seed,
+            mode_draw=mode,
+            random_dropout=mode_params["random_dropout"],
+            row_less_than=mode_params["row_less_than"],
+            row_great_than=mode_params["row_great_than"],
+            col_less_than=mode_params["col_less_than"],
+            col_great_than=mode_params["col_great_than"],
+            flower_scale=uniform(-0.5, -0.15),
+        )
+
+    def _sample_spawn_parameters(
+        self, params: DandelionParameters, seed: int, i: int
+    ) -> DandelionParameters:
+        mode_params = self._sample_mode_params(params.mode_draw)
+        return params.model_copy(
+            update={
+                "random_dropout": mode_params["random_dropout"],
+                "row_less_than": mode_params["row_less_than"],
+                "row_great_than": mode_params["row_great_than"],
+                "col_less_than": mode_params["col_less_than"],
+                "col_great_than": mode_params["col_great_than"],
+                "flower_scale": uniform(-0.5, -0.15),
             }
-        else:
-            raise NotImplementedError
+        )
+
+    def apply_parameters(
+        self, params: DandelionParameters, *, spawn_scope: bool = True
+    ) -> None:
+        self.geom_kwargs = self._build_geom_kwargs(params)
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):
         bpy.ops.mesh.primitive_plane_add(
@@ -972,23 +1062,72 @@ class DandelionFactory(AssetFactory):
         )
         obj = bpy.context.active_object
 
-        mode = np.random.choice(self.flower_mode, p=self.flower_mode_pb)
-        params = self.get_mode_params(mode)
+        if self._use_fixed_spawn_draws:
+            geom_params = self.geom_kwargs
+        else:
+            mode = str(np.random.choice(_DANDELION_MODES))
+            mode_params = self._sample_mode_params(mode)
+            geom_params = {
+                **mode_params,
+                "flower_scale": uniform(-0.15, -0.5),
+            }
 
         surface.add_geomod(
             obj,
             geometry_dandelion_nodes,
             apply=True,
             attributes=[],
-            input_kwargs=params,
+            input_kwargs=geom_params,
         )
         tag_object(obj, "dandelion")
         return obj
 
 
-class DandelionSeedFactory(AssetFactory):
+class DandelionSeedParameters(AssetParameters):
+    overall_scale: Annotated[
+        float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": False})
+    ] = 1.0
+    rotation_z: Annotated[
+        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
+    ] = 0.0
+    x_tilt: Annotated[
+        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
+    ] = 0.0
+    y_tilt: Annotated[
+        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
+    ] = 0.0
+
+
+class DandelionSeedFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = DandelionSeedParameters
+
     def __init__(self, factory_seed, coarse=False):
         super(DandelionSeedFactory, self).__init__(factory_seed, coarse=coarse)
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> DandelionSeedParameters:
+        return DandelionSeedParameters(seed=seed)
+
+    def _sample_spawn_parameters(
+        self, params: DandelionSeedParameters, seed: int, i: int
+    ) -> DandelionSeedParameters:
+        return params.model_copy(
+            update={
+                "overall_scale": uniform(0.7, 1.3),
+                "rotation_z": uniform(0.0, 6.283185),
+                "x_tilt": uniform(-0.2, 0.2),
+                "y_tilt": uniform(-0.2, 0.2),
+            }
+        )
+
+    def apply_parameters(
+        self, params: DandelionSeedParameters, *, spawn_scope: bool = True
+    ) -> None:
+        self.overall_scale = params.overall_scale
+        self.rotation_z = params.rotation_z
+        self.x_tilt = params.x_tilt
+        self.y_tilt = params.y_tilt
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):
         bpy.ops.mesh.primitive_plane_add(
@@ -1007,6 +1146,16 @@ class DandelionSeedFactory(AssetFactory):
             attributes=[],
             input_kwargs=params,
         )
+        if self._use_fixed_spawn_draws:
+            obj.scale = (self.overall_scale,) * 3
+            obj.rotation_euler = (self.x_tilt, self.y_tilt, self.rotation_z)
+        else:
+            obj.scale = (uniform(0.7, 1.3),) * 3
+            obj.rotation_euler = (
+                uniform(-0.2, 0.2),
+                uniform(-0.2, 0.2),
+                uniform(0.0, 6.283185),
+            )
         tag_object(obj, "seed")
         return obj
 

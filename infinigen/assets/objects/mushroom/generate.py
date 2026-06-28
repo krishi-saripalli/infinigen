@@ -4,41 +4,55 @@
 # Authors: Lingjie Mei
 
 
+from typing import Annotated, ClassVar
+
 import numpy as np
 from mathutils import Euler, kdtree
 from numpy.random import uniform
-from typing import Any, ClassVar
+from pydantic import Field
 
 from infinigen.assets.utils.mesh import polygon_angles
 from infinigen.assets.utils.object import join_objects
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
-from infinigen.core.util.math import FixedSeed
 
 from .growth import MushroomGrowthFactory
 
 
-def _mushroom_legacy_init(inst: Any, factory_seed: int, coarse: bool = False) -> None:
-    AssetFactory.__init__(inst, factory_seed, coarse)
-    with FixedSeed(factory_seed):
-        inst.makers = [inst.directional_make, inst.cluster_make]
-        inst.maker = np.random.choice(inst.makers)
-        inst.lowered = uniform(0, 1) < 0.5
-        inst.factory = MushroomGrowthFactory(factory_seed, coarse)
-        inst.tolerant_length = uniform(0, 0.2)
-
-
-class MushroomParameters(LegacyBridgeParameters):
-    pass
+class MushroomParameters(AssetParameters):
+    maker_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ]
+    lowered_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ]
+    tolerant_length: Annotated[
+        float, Field(ge=0.0, le=0.2, json_schema_extra={"editable": True})
+    ]
+    cluster_count: Annotated[
+        int, Field(ge=1, le=5, json_schema_extra={"editable": False})
+    ] = 1
+    bend_angle: Annotated[
+        float, Field(ge=-0.392699, le=0.392699, json_schema_extra={"editable": False})
+    ] = 0.0
+    bend_axis: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["X", "Y"],
+            }
+        ),
+    ] = "X"
 
 
 class MushroomFactory(ParameterizedAssetFactory, AssetFactory):
@@ -50,18 +64,39 @@ class MushroomFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> MushroomParameters:
-        return legacy_init_to_parameters(
-            MushroomParameters,
-            MushroomFactory,
-            seed,
-            self.coarse,
-            init_fn=_mushroom_legacy_init,
+        self.makers = [self.directional_make, self.cluster_make]
+        self.factory = MushroomGrowthFactory(seed, self.coarse)
+        return MushroomParameters(
+            seed=seed,
+            maker_draw=uniform(0, 1),
+            lowered_draw=uniform(0, 1),
+            tolerant_length=uniform(0, 0.2),
+        )
+
+    def _sample_spawn_parameters(
+        self, params: MushroomParameters, seed: int, i: int
+    ) -> MushroomParameters:
+        return params.model_copy(
+            update={
+                "cluster_count": int(np.random.randint(1, 6)),
+                "bend_angle": uniform(-np.pi / 8, np.pi / 8),
+                "bend_axis": str(np.random.choice(["X", "Y"])),
+            }
         )
 
     def apply_parameters(
         self, params: MushroomParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self.makers = [self.directional_make, self.cluster_make]
+        self.maker = self.makers[0 if params.maker_draw < 0.5 else 1]
+        self.lowered = params.lowered_draw < 0.5
+        self.factory = MushroomGrowthFactory(params.seed, self.coarse)
+        self.tolerant_length = params.tolerant_length
+        self.cluster_count = params.cluster_count
+        self.bend_angle = params.bend_angle
+        self.bend_axis = params.bend_axis
+        self._use_fixed_spawn_draws = spawn_scope
+
 
     def create_asset(self, i, face_size, **params):
         mushrooms, keypoints = self.build_mushrooms(i, face_size)
@@ -72,18 +107,28 @@ class MushroomFactory(ParameterizedAssetFactory, AssetFactory):
             m.scale = s
             butil.apply_transform(m, loc=True)
         obj = join_objects(mushrooms)
+        angle = (
+            self.bend_angle
+            if self._use_fixed_spawn_draws
+            else uniform(-np.pi / 8, np.pi / 8)
+        )
+        axis = (
+            self.bend_axis
+            if self._use_fixed_spawn_draws
+            else str(np.random.choice(["X", "Y"]))
+        )
         butil.modify_mesh(
             obj,
             "SIMPLE_DEFORM",
             deform_method="BEND",
-            angle=uniform(-np.pi / 8, np.pi / 8),
-            deform_axis=np.random.choice(["X", "Y"]),
+            angle=angle,
+            deform_axis=axis,
         )
         tag_object(obj, "mushroom")
         return obj
 
     def build_mushrooms(self, i, face_size=0.01):
-        n = np.random.randint(1, 6)
+        n = self.cluster_count if self._use_fixed_spawn_draws else np.random.randint(1, 6)
         mushrooms, keypoints = [], []
         for j in range(n):
             obj = self.factory.create_asset(

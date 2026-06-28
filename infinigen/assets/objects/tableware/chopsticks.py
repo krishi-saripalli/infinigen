@@ -21,34 +21,43 @@ from infinigen.assets.utils.object import join_objects, new_grid
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
 class ChopsticksParameters(AssetParameters):
-    y_length: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
-    y_shrink: Annotated[float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})]
-    is_square_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    y_shrink: Annotated[float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": False})]
+    is_square: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ]
-    has_guard_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    has_guard: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
-    x_guard: Annotated[float, Field(ge=0.4, le=0.9, json_schema_extra={"editable": True})]
-    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})]
+    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
     scale: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
     scratch_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
     thickness: float = Field(default=0.01, json_schema_extra={"editable": False})
     edge_wear_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
-    parallel_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.0
-    parallel_style_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.0
+    parallel_style: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
+    is_parallel: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
     parallel_distance: Annotated[
         float, Field(ge=0.01, le=0.04, json_schema_extra={"editable": True})
     ] = 0.01
@@ -77,46 +86,72 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
         self.pre_level = 2
         self.init_legacy_parameters()
 
+    def _layout_branch_updates(
+        self,
+        *,
+        y_length: float,
+        is_parallel: bool,
+        parallel_style: bool | None = None,
+    ) -> dict[str, bool | float]:
+        if is_parallel:
+            return {
+                "is_parallel": True,
+                "parallel_style": (
+                    parallel_style
+                    if parallel_style is not None
+                    else bool(uniform(0, 1) < 0.5)
+                ),
+                "parallel_distance": log_uniform(y_length, 0.04),
+                "parallel_rot_a": uniform(0, np.pi / 8),
+                "parallel_rot_b": uniform(0, np.pi / 8),
+            }
+        crossed_loc_y = uniform(-0.2, 0.2)
+        sign = np.sign(crossed_loc_y)
+        return {
+            "is_parallel": False,
+            "crossed_loc_x": uniform(-0.1, 0.2),
+            "crossed_loc_y": crossed_loc_y,
+            "crossed_rot": log_uniform(np.pi / 8, np.pi / 4) * sign,
+        }
+
     def _sample_init_parameters(self, seed: int) -> ChopsticksParameters:
         base = sample_tableware_base(seed)
+        with FixedSeed(seed):
+            self._y_length = uniform(0.01, 0.02)
+            is_parallel = bool(uniform(0, 1) < 0.6)
+            layout = self._layout_branch_updates(
+                y_length=self._y_length, is_parallel=is_parallel
+            )
         return ChopsticksParameters(
             seed=seed,
-            y_length=uniform(0.01, 0.02),
             y_shrink=log_uniform(0.2, 0.8),
-            is_square_draw=uniform(0, 1),
-            has_guard_draw=uniform(0, 1),
-            x_guard=uniform(0.4, 0.9),
+            is_square=bool(uniform(0, 1) < 0.5),
+            has_guard=bool(uniform(0, 1) < 0.4),
             lower_thresh=base["lower_thresh"],
             scale=log_uniform(0.2, 0.4),
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
+            **layout,
         )
 
     def _sample_spawn_parameters(
         self, params: ChopsticksParameters, seed: int, i: int
     ) -> ChopsticksParameters:
-        parallel_draw = uniform(0, 1)
-        if parallel_draw < 0.6:
-            parallel_style_draw = uniform(0, 1)
-            return params.model_copy(
-                update={
-                    "parallel_draw": parallel_draw,
-                    "parallel_style_draw": parallel_style_draw,
-                    "parallel_distance": log_uniform(params.y_length, 0.04),
-                    "parallel_rot_a": uniform(0, np.pi / 8),
-                    "parallel_rot_b": uniform(0, np.pi / 8),
-                }
-            )
-        crossed_loc_y = uniform(-0.2, 0.2)
-        sign = np.sign(crossed_loc_y)
-        return params.model_copy(
-            update={
-                "parallel_draw": parallel_draw,
-                "crossed_loc_x": uniform(-0.1, 0.2),
-                "crossed_loc_y": crossed_loc_y,
-                "crossed_rot": log_uniform(np.pi / 8, np.pi / 4) * sign,
-            }
+        editable = params.editable_field_names()
+        is_parallel = (
+            params.is_parallel
+            if "is_parallel" in editable
+            else bool(uniform(0, 1) < 0.6)
         )
+        parallel_style = (
+            params.parallel_style if "parallel_style" in editable else None
+        )
+        layout = self._layout_branch_updates(
+            y_length=self._y_length,
+            is_parallel=is_parallel,
+            parallel_style=parallel_style,
+        )
+        return params.model_copy(update=layout)
 
     def apply_parameters(
         self, params: ChopsticksParameters, *, spawn_scope: bool = True
@@ -128,19 +163,24 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
             scale=params.scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,
-            guard_depth=0.0,
+            has_guard=params.has_guard,
+            guard_depth=params.thickness * 2 if params.has_guard else 0.0,
         )
         self.thickness = 0.01
-        self.y_length = params.y_length
+        # NOTE: y_length resampled in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.y_length = uniform(0.01, 0.02)
         self.y_shrink = params.y_shrink
-        self.is_square = params.is_square_draw < 0.5
-        self.has_guard = params.has_guard_draw < 0.4
-        self.x_guard = params.x_guard
-        self.guard_depth = 0.0
+        self.is_square = params.is_square
+        self.has_guard = params.has_guard
+        # NOTE: x_guard does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.x_guard = uniform(0.4, 0.9)
+        self.guard_depth = params.thickness * 2 if params.has_guard else 0.0
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
-            self._parallel_draw = params.parallel_draw
-            self._parallel_style_draw = params.parallel_style_draw
+            self._is_parallel = params.is_parallel
+            self._parallel_style = params.parallel_style
             self._parallel_distance = params.parallel_distance
             self._parallel_rot_a = params.parallel_rot_a
             self._parallel_rot_b = params.parallel_rot_b
@@ -151,7 +191,7 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
     def create_asset(self, **params) -> bpy.types.Object:
         obj = self.make_single()
         if self._use_fixed_spawn_draws:
-            is_parallel = self._parallel_draw < 0.6
+            is_parallel = self._is_parallel
         else:
             is_parallel = uniform(0, 1) < 0.6
         if is_parallel:
@@ -163,15 +203,15 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
     def make_parallel(self, obj):
         if self._use_fixed_spawn_draws:
             distance = self._parallel_distance
-            style_draw = self._parallel_style_draw
+            parallel_style = self._parallel_style
             rot_a = self._parallel_rot_a
             rot_b = self._parallel_rot_b
         else:
             distance = log_uniform(self.y_length, 0.04)
-            style_draw = uniform(0, 1)
+            parallel_style = uniform(0, 1) < 0.5
             rot_a = uniform(0, np.pi / 8)
             rot_b = uniform(0, np.pi / 8)
-        if style_draw < 0.5:
+        if parallel_style:
             other = deep_clone_obj(obj)
             obj.location[1] = distance
             obj.rotation_euler[-1] = rot_a

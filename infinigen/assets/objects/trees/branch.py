@@ -3,14 +3,23 @@
 
 # Authors: Yiming Zuo
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 from numpy.random import randint, uniform
+from pydantic import Field
 
 from infinigen.core import surface
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util.math import FixedSeed
 
 
@@ -705,38 +714,95 @@ def generate_branch(nw: NodeWrangler, **kwargs):
     )
 
 
-class BranchFactory(AssetFactory):
-    def __init__(self, factory_seed, twig_col, fruit_col, coarse=False):
-        super().__init__(factory_seed, coarse=coarse)
+class BranchParameters(AssetParameters):
+    overall_radius: Annotated[
+        float, Field(ge=0.015, le=0.025, json_schema_extra={"editable": True})
+    ]
+    main_branch_noise_amount: Annotated[
+        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
+    ]
+    main_branch_noise_scale: Annotated[
+        float, Field(ge=0.9, le=1.3, json_schema_extra={"editable": True})
+    ]
+    twig_density: Annotated[
+        float, Field(ge=5.0, le=15.0, json_schema_extra={"editable": True})
+    ]
+    twig_scale: Annotated[
+        float, Field(ge=3.0, le=7.0, json_schema_extra={"editable": True})
+    ]
+    leaf_density: Annotated[
+        float, Field(ge=5.0, le=25.0, json_schema_extra={"editable": True})
+    ]
+    leaf_scale: Annotated[
+        float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": True})
+    ]
+    geom_seed_draw: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    ] = 0.0
 
-        self.avg_fruit_dim = np.cbrt(
-            np.mean([np.prod(list(o.dimensions)) for o in fruit_col.objects])
+
+class BranchFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = BranchParameters
+
+    def __init__(self, factory_seed, twig_col, fruit_col, coarse=False):
+        self._twig_col = twig_col
+        self._fruit_col = fruit_col
+        super().__init__(factory_seed, coarse=coarse)
+        self.init_legacy_parameters()
+
+    def _avg_fruit_dim(self) -> float:
+        return float(
+            np.cbrt(np.mean([np.prod(list(o.dimensions)) for o in self._fruit_col.objects]))
         )
 
-        with FixedSeed(factory_seed):
-            self.branch_params = self.sample_branch_params()
+    def _sample_init_parameters(self, seed: int) -> BranchParameters:
+        return BranchParameters(
+            seed=seed,
+            overall_radius=uniform(0.015, 0.025),
+            main_branch_noise_amount=uniform(0.2, 0.4),
+            main_branch_noise_scale=uniform(0.9, 1.3),
+            twig_density=uniform(5, 15),
+            twig_scale=uniform(3, 7),
+            leaf_density=uniform(5, 25),
+            leaf_scale=uniform(0.25, 0.35),
+        )
 
-        self.branch_params["leaf collection"] = twig_col
-        self.branch_params["fruit collection"] = fruit_col
-        self.branch_params["material"] = twig_col.objects[0].active_material
+    def _sample_spawn_parameters(
+        self, params: BranchParameters, seed: int, i: int
+    ) -> BranchParameters:
+        return params.model_copy(update={"geom_seed_draw": uniform()})
 
-    def sample_branch_params(self):
-        return {
+    def apply_parameters(
+        self, params: BranchParameters, *, spawn_scope: bool = True
+    ) -> None:
+        avg_fruit_dim = self._avg_fruit_dim()
+        with FixedSeed(params.seed):
+            fruit_density = float(np.clip(uniform(1, 5) / avg_fruit_dim, 0.01, 50))
+            twig_rotation = uniform(30, 60)
+            twig_noise_amount = uniform(0.2, 0.4)
+            leaf_rot = uniform(30, 60)
+            fruit_scale = uniform(0.15, 0.25)
+        self.branch_params = {
             "resolution": 256,
-            "main branch noise amount": uniform(0.2, 0.4),
-            "main branch noise scale": uniform(0.9, 1.3),
-            "overall radius": uniform(0.015, 0.025),
-            "twig density": uniform(5, 15),
-            "twig rotation": uniform(30, 60),
-            "twig scale": uniform(3, 7),
-            "twig noise amount": uniform(0.2, 0.4),
-            "leaf density": uniform(5, 25),
-            "leaf scale": uniform(0.25, 0.35),
-            "leaf rot": uniform(30, 60),
-            "fruit scale": uniform(0.15, 0.25),
+            "main branch noise amount": params.main_branch_noise_amount,
+            "main branch noise scale": params.main_branch_noise_scale,
+            "overall radius": params.overall_radius,
+            "twig density": params.twig_density,
+            "twig rotation": twig_rotation,
+            "twig scale": params.twig_scale,
+            "twig noise amount": twig_noise_amount,
+            "leaf density": params.leaf_density,
+            "leaf scale": params.leaf_scale,
+            "leaf rot": leaf_rot,
+            "fruit scale": fruit_scale,
             "fruit rot": 0.0,
-            "fruit density": np.clip(uniform(1, 5) / self.avg_fruit_dim, 0.01, 50),
+            "fruit density": fruit_density,
+            "leaf collection": self._twig_col,
+            "fruit collection": self._fruit_col,
+            "material": self._twig_col.objects[0].active_material,
         }
+        self._geom_seed = int(params.geom_seed_draw * 10000000)
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):
         bpy.ops.mesh.primitive_plane_add(
@@ -749,7 +815,11 @@ class BranchFactory(AssetFactory):
         obj = bpy.context.active_object
 
         phenome = self.branch_params.copy()
-        phenome["seed"] = randint(10000000)
+        phenome["seed"] = (
+            self._geom_seed
+            if self._use_fixed_spawn_draws
+            else randint(10000000)
+        )
 
         surface.add_geomod(obj, generate_branch, input_kwargs=phenome)
 

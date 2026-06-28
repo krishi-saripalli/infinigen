@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-import bmesh
 from typing import Annotated, ClassVar
 
+import bmesh
 import bpy
 import numpy as np
 import shapely
@@ -23,7 +23,10 @@ from infinigen.assets.utils.uv import wrap_four_sides
 from infinigen.core import surface
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
@@ -33,11 +36,22 @@ class CanParameters(AssetParameters):
     x_length: Annotated[float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})]
     z_length: Annotated[float, Field(ge=0.025, le=0.25, json_schema_extra={"editable": True})]
     skewness: Annotated[float, Field(ge=1.0, le=2.5, json_schema_extra={"editable": True})]
-    texture_shared_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    scratch_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
-    scratch_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    edge_wear_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
+    edge_wear_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
     cap_scale: Annotated[
         float, Field(ge=0.96, le=0.98, json_schema_extra={"editable": True})
     ] = 0.97
@@ -53,6 +67,19 @@ class CanParameters(AssetParameters):
     wrap_high_frac: Annotated[
         float, Field(ge=0.9, le=1.0, json_schema_extra={"editable": True})
     ] = 0.95
+    shape: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["circle", "rectangle"],
+            }
+        ),
+    ] = "rectangle"
+    has_skew: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
 
 
 class CanFactory(ParameterizedAssetFactory, AssetFactory):
@@ -73,12 +100,25 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_internal_state(self, seed: int) -> None:
         with FixedSeed(seed):
-            self.shape = np.random.choice(["circle", "rectangle"])
             wrap_surface = weighted_sample(material_assignments.graphicdesign)()()
             if wrap_surface == text.Text:
                 wrap_surface = text.Text(seed, False)
             self.wrap_surface = wrap_surface
             self.surface = weighted_sample(material_assignments.metals)()()
+
+    def _sample_texture_shared(self, seed: int) -> bool:
+        # NOTE: texture_shared_draw is sampled on self in apply_parameters; excluded from quartet sampling (material-only, not exported geometry).
+        with FixedSeed(seed):
+            return uniform() < 0.2
+
+    def _sample_spawn_field_updates(self) -> dict[str, float]:
+        return {
+            "cap_scale": uniform(0.96, 0.98),
+            "cap_extrude": uniform(0.005, 0.01),
+            "rect_side_frac": uniform(0.2, 0.8),
+            "wrap_low_frac": uniform(0, 0.1),
+            "wrap_high_frac": uniform(0.9, 1.0),
+        }
 
     def _sample_init_parameters(self, seed: int) -> CanParameters:
         x_length = log_uniform(0.05, 0.1)
@@ -86,33 +126,29 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
             seed=seed,
             x_length=x_length,
             z_length=x_length * log_uniform(0.5, 2.5),
-            skewness=uniform(1, 2.5) if uniform() < 0.5 else 1,
-            texture_shared_draw=uniform(),
+            skewness=uniform(1, 2.5),
             scratch_draw=uniform(),
             edge_wear_draw=uniform(),
+            shape="rectangle",
+            has_skew=True,
+            **self._sample_spawn_field_updates(),
         )
 
     def _sample_spawn_parameters(
         self, params: CanParameters, seed: int, i: int
     ) -> CanParameters:
-        return params.model_copy(
-            update={
-                "cap_scale": uniform(0.96, 0.98),
-                "cap_extrude": uniform(0.005, 0.01),
-                "rect_side_frac": uniform(0.2, 0.8),
-                "wrap_low_frac": uniform(0, 0.1),
-                "wrap_high_frac": uniform(0.9, 1.0),
-            }
-        )
+        return params.model_copy(update=self._sample_spawn_field_updates())
 
     def apply_parameters(
         self, params: CanParameters, *, spawn_scope: bool = True
     ) -> None:
         self.x_length = params.x_length
         self.z_length = params.z_length
-        self.skewness = params.skewness
-        self.texture_shared = params.texture_shared_draw < 0.2
         self._sample_internal_state(params.seed)
+        self.shape = params.shape
+        self.has_skew = params.has_skew
+        self.skewness = params.skewness if params.has_skew else 1.0
+        self.texture_shared = self._sample_texture_shared(params.seed)
         self.scratch, self.edge_wear = self._resolve_wear(
             params.scratch_draw, params.edge_wear_draw
         )

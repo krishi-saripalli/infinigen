@@ -48,12 +48,16 @@ from .tube import TubeBaseCoralFactory
 
 
 class CoralParameters(AssetParameters):
-    base_hue: Annotated[float, Field(ge=-0.2, le=0.3, json_schema_extra={"editable": True})]
+    base_hue: Annotated[
+        float, Field(ge=-0.2, le=0.3, json_schema_extra={"editable": False})
+    ]
     has_bump_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
     ]
     tentacle_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
     ]
 
 
@@ -204,9 +208,9 @@ class CoralFactory(ParameterizedAssetFactory, AssetFactory):
     @staticmethod
     def build_base_hue():
         if uniform(0, 1) < 0.25:
-            base_hue = uniform(0, 1)
+            base_hue = uniform(0, 0.3)
         else:
-            base_hue = uniform(-0.2, 0.3) % 1
+            base_hue = uniform(-0.2, 0.3)
         return base_hue
 
     @staticmethod

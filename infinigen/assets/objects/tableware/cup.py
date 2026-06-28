@@ -4,14 +4,20 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.materials import text
+from infinigen.assets.objects.tableware.base import (
+    TablewareFactory,
+    apply_tableware_from_draws,
+    sample_tableware_base,
+)
 from infinigen.assets.utils.decorate import (
     read_co,
     remove_vertices,
@@ -22,61 +28,62 @@ from infinigen.assets.utils.draw import spin
 from infinigen.assets.utils.object import join_objects
 from infinigen.assets.utils.uv import wrap_sides
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
-from .base import TablewareFactory
 
-
-def _cup_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    AssetFactory.__init__(inst, seed, coarse)
-    inst._init_tableware_base()
-    inst.x_end = 0.25
-    inst.is_short = uniform(0, 1) < 0.5
-    if inst.is_short:
-        inst.is_profile_straight = uniform(0, 1) < 0.2
-        inst.x_lowest = log_uniform(0.6, 0.9)
-        inst.depth = log_uniform(0.25, 0.5)
-        inst.has_guard = uniform(0, 1) < 0.8
-    else:
-        inst.is_profile_straight = True
-        inst.x_lowest = log_uniform(0.9, 1.0)
-        inst.depth = log_uniform(0.5, 1.0)
-        inst.has_guard = False
-    if inst.is_profile_straight:
-        inst.handle_location = uniform(0.45, 0.65)
-    else:
-        inst.handle_location = uniform(-0.1, 0.3)
-    inst.handle_type = "shear" if uniform(0, 1) < 0.5 else "round"
-    inst.handle_radius = inst.depth * uniform(0.2, 0.4)
-    inst.handle_inner_radius = inst.handle_radius * log_uniform(0.2, 0.3)
-    inst.handle_taper_x = uniform(0, 2)
-    inst.handle_taper_y = uniform(0, 2)
-    inst.x_lower_ratio = log_uniform(0.8, 1.0)
-    inst.thickness = log_uniform(0.01, 0.04)
-    inst.has_wrap = uniform() < 0.3
-    inst.has_wrap = True
-    inst.wrap_margin = uniform(0.1, 0.2)
-
-    inst.wrap_surface = weighted_sample(material_assignments.graphicdesign)()()
-    if inst.wrap_surface == text.Text:
-        inst.wrap_surface = text.Text(inst.factory_seed, False)
-
-    inst.has_inside = uniform(0, 1) < 0.5
-    inst.scale = log_uniform(0.15, 0.3)
-
-
-class CupParameters(LegacyBridgeParameters):
-    pass
+class CupParameters(AssetParameters):
+    thickness: Annotated[float, Field(ge=0.01, le=0.04, json_schema_extra={"editable": False})]
+    x_lower_ratio: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})]
+    # NOTE: only applies when has_guard=True.
+    handle_taper_x: Annotated[float, Field(ge=0.0, le=2.0, json_schema_extra={"editable": False})]
+    # NOTE: only applies when has_guard=True.
+    handle_taper_y: Annotated[float, Field(ge=0.0, le=2.0, json_schema_extra={"editable": False})]
+    has_inside: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ]
+    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
+    scratch_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    edge_wear_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    is_short: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    depth: Annotated[float, Field(ge=0.25, le=1.0, json_schema_extra={"editable": True})]
+    # NOTE: anchor layout differs when is_profile_straight=False.
+    x_lowest: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": False})]
+    # NOTE: only applies when has_guard=True.
+    handle_location: Annotated[
+        float, Field(ge=-0.1, le=0.65, json_schema_extra={"editable": False})
+    ]
+    handle_radius_ratio: Annotated[
+        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
+    ]
+    bevel_width_pct: Annotated[
+        float, Field(ge=10.0, le=50.0, json_schema_extra={"editable": True})
+    ] = 30.0
+    handle_angle: Annotated[
+        float, Field(ge=0.009733, le=0.544872, json_schema_extra={"editable": True})
+    ] = 0.2
 
 
 class CupFactory(ParameterizedAssetFactory, TablewareFactory):
@@ -87,19 +94,109 @@ class CupFactory(ParameterizedAssetFactory, TablewareFactory):
         AssetFactory.__init__(self, factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_wrap_surface(self, seed: int) -> None:
+        with FixedSeed(seed):
+            wrap_surface = weighted_sample(material_assignments.graphicdesign)()()
+            if wrap_surface == text.Text:
+                wrap_surface = text.Text(seed, False)
+            self.wrap_surface = wrap_surface
+
+    def _apply_cup_branches(self, params: CupParameters) -> None:
+        self.is_short = params.is_short
+        with FixedSeed(params.seed):
+            if self.is_short:
+                self.is_profile_straight = uniform(0, 1) < 0.2
+                self.has_guard = uniform(0, 1) < 0.8
+            else:
+                self.is_profile_straight = True
+                self.has_guard = False
+            self.handle_type = "shear" if uniform(0, 1) < 0.5 else "round"
+        self.x_end = 0.25
+        self.x_lowest = params.x_lowest
+        self.depth = params.depth
+        self.handle_location = params.handle_location
+        self.handle_radius = params.depth * params.handle_radius_ratio
+        # NOTE: handle_inner_radius_ratio does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.handle_inner_radius = self.handle_radius * log_uniform(0.2, 0.3)
+        self.has_wrap = True
+        self.has_inside = params.has_inside
+
     def _sample_init_parameters(self, seed: int) -> CupParameters:
-        return legacy_init_to_parameters(
-            CupParameters,
-            CupFactory,
-            seed,
-            self.coarse,
-            init_fn=_cup_legacy_init,
+        base = sample_tableware_base(seed)
+        self._init_tableware_base()
+        is_short = True
+        if is_short:
+            x_lowest = log_uniform(0.6, 0.9)
+            depth = log_uniform(0.25, 0.5)
+            handle_location = (
+                uniform(0.45, 0.65) if uniform(0, 1) < 0.2 else uniform(-0.1, 0.3)
+            )
+        else:
+            x_lowest = log_uniform(0.9, 1.0)
+            depth = log_uniform(0.5, 1.0)
+            handle_location = uniform(0.45, 0.65)
+        self._sample_wrap_surface(seed)
+        return CupParameters(
+            seed=seed,
+            thickness=log_uniform(0.01, 0.04),
+            x_lower_ratio=log_uniform(0.8, 1.0),
+            handle_taper_x=uniform(0, 2),
+            handle_taper_y=uniform(0, 2),
+            has_inside=bool(uniform(0, 1) < 0.5),
+            lower_thresh=base["lower_thresh"],
+            scratch_draw=base["scratch_draw"],
+            edge_wear_draw=base["edge_wear_draw"],
+            is_short=is_short,
+            depth=depth,
+            x_lowest=x_lowest,
+            handle_location=handle_location,
+            handle_radius_ratio=uniform(0.2, 0.4),
+            bevel_width_pct=uniform(10, 50),
+            handle_angle=uniform(0.009733, 0.544872),
         )
+
+    def _sample_spawn_field_updates(self) -> dict[str, float]:
+        return {
+            "bevel_width_pct": uniform(10, 50),
+            "handle_angle": uniform(0.009733, 0.544872),
+        }
+
+    def _sample_spawn_parameters(
+        self, params: CupParameters, seed: int, i: int
+    ) -> CupParameters:
+        return params.model_copy(update=self._sample_spawn_field_updates())
 
     def apply_parameters(
         self, params: CupParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.scale = log_uniform(0.15, 0.3)
+        apply_tableware_from_draws(
+            self,
+            seed=params.seed,
+            lower_thresh=params.lower_thresh,
+            scale=self.scale,
+            scratch_draw=params.scratch_draw,
+            edge_wear_draw=params.edge_wear_draw,
+            has_inside=params.has_inside,
+        )
+        self._sample_wrap_surface(params.seed)
+        self._apply_cup_branches(params)
+        self.thickness = params.thickness
+        self.x_lower_ratio = params.x_lower_ratio
+        # NOTE: wrap_margin does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.wrap_margin = uniform(0.1, 0.2)
+        self.handle_taper_x = params.handle_taper_x
+        self.handle_taper_y = params.handle_taper_y
+        with FixedSeed(params.seed):
+            self._wrap_margin_jitter = uniform(0.0, 0.1)
+        self._use_fixed_spawn_draws = spawn_scope
+        if spawn_scope:
+            self._bevel_width_pct = params.bevel_width_pct
+            self._handle_angle = params.handle_angle
 
     def create_asset(self, **params) -> bpy.types.Object:
         if self.is_profile_straight:
@@ -122,7 +219,11 @@ class CupFactory(ParameterizedAssetFactory, TablewareFactory):
             "BEVEL",
             True,
             offset_type="PERCENT",
-            width_pct=uniform(10, 50),
+            width_pct=(
+                self._bevel_width_pct
+                if self._use_fixed_spawn_draws
+                else uniform(10, 50)
+            ),
             segments=8,
         )
         if self.has_wrap:
@@ -144,7 +245,11 @@ class CupFactory(ParameterizedAssetFactory, TablewareFactory):
         angle_height = np.arctan(
             (x_anchors[2] - x_anchors[1]) / (z_anchors[2] - z_anchors[1])
         )
-        handle_angle = uniform(angle_low, angle_height + 1e-3)
+        handle_angle = (
+            self._handle_angle
+            if self._use_fixed_spawn_draws
+            else uniform(angle_low, angle_height + 1e-3)
+        )
         if self.has_guard:
             obj = self.add_handle(obj, handle_location, handle_angle)
         if self.has_wrap:
@@ -193,7 +298,12 @@ class CupFactory(ParameterizedAssetFactory, TablewareFactory):
         remove_vertices(
             obj,
             lambda x, y, z: (z / self.depth < self.wrap_margin)
-            | (z / self.depth > 1 - self.wrap_margin + uniform(0.0, 0.1))
+            | (
+                z / self.depth
+                > 1
+                - self.wrap_margin
+                + self._wrap_margin_jitter
+            )
             | (np.abs(np.arctan2(y, x)) < np.pi * self.wrap_margin),
         )
         obj.scale = 1 + 1e-2, 1 + 1e-2, 1

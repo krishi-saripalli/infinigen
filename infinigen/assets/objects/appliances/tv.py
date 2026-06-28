@@ -42,10 +42,14 @@ from infinigen.assets.utils.uv import (
 )
 from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.surface import write_attr_data
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
@@ -55,61 +59,76 @@ class TVParameters(AssetParameters):
         float, Field(ge=0.0, le=0.01, json_schema_extra={"editable": True})
     ]
     side_margin: Annotated[float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})]
-    bottom_margin: Annotated[
-        float, Field(ge=0.005, le=0.03, json_schema_extra={"editable": True})
-    ]
     depth: Annotated[float, Field(ge=0.02, le=0.04, json_schema_extra={"editable": True})]
     has_depth_extrude_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
+    ] = 0.0
     depth_extrude_multiplier: Annotated[
         float, Field(ge=2.0, le=5.0, json_schema_extra={"editable": True})
     ]
-    leg_length: Annotated[float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})]
-    leg_length_y: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
-    leg_radius: Annotated[float, Field(ge=0.008, le=0.015, json_schema_extra={"editable": True})]
-    leg_width: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})]
-    leg_bevel_width: Annotated[
-        float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
-    ]
-    tv_164: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": True})] = (
+    leg_length: Annotated[float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": False})]
+    leg_length_y: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": False})]
+    leg_width: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
+    tv_164: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": False})] = (
         0.2
     )
-    tv_165: Annotated[float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": True})] = (
+    tv_165: Annotated[float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": False})] = (
         0.6
     )
-    tv_176: Annotated[float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": True})] = (
+    tv_176: Annotated[float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": False})] = (
         0.2
     )
-    tv_241: Annotated[float, Field(ge=0.0, le=0.6, json_schema_extra={"editable": True})] = (
+    tv_241: Annotated[float, Field(ge=0.0, le=0.6, json_schema_extra={"editable": False})] = (
         0.3
     )
-    tv_243: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": True})] = (
+    tv_243: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": False})] = (
         0.4
     )
-    tv_250: Annotated[float, Field(ge=0.0, le=0.6, json_schema_extra={"editable": True})] = (
+    tv_250: Annotated[float, Field(ge=0.0, le=0.6, json_schema_extra={"editable": False})] = (
         0.3
     )
-    width_1: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})] = (
+    width_1: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})] = (
         0.45
     )
+    leg_style: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": ["two-legged", "single-legged"],
+            }
+        ),
+    ] = "two-legged"
+    aspect_ratio_preset: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": ["16:9", "4:3"],
+            }
+        ),
+    ] = "16:9"
 
 
 class TVFactory(ParameterizedAssetFactory, AssetFactory):
     parameters_model: ClassVar[type[AssetParameters]] = TVParameters
+    _aspect_ratio_by_preset = {"16:9": 9 / 16, "4:3": 3 / 4}
 
     def __init__(self, factory_seed, coarse=False):
         super(TVFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> TVParameters:
-        has_depth_extrude_draw = uniform()
         depth = uniform(0.02, 0.04)
         screen_surface = weighted_sample(material_assignments.graphicdesign)()
         screen_emission = 0.01
         if isinstance(screen_surface, Text):
             screen_emission = 0.01 if uniform() < 0.1 else uniform(2, 3)
-        self._aspect_ratio = float(np.random.choice([9 / 16, 3 / 4]))
+        aspect_ratio_preset = str(np.random.choice(["16:9", "4:3"]))
+        self._aspect_ratio = self._aspect_ratio_by_preset[aspect_ratio_preset]
         self._leg_type = np.random.choice(["two-legged", "single-legged"])
         self._surface = weighted_sample(material_assignments.metal_neutral)()
         self._support_surface = weighted_sample(material_assignments.metal_neutral)()
@@ -120,37 +139,34 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             width=uniform(0.6, 2.1),
             screen_bevel_width=uniform(0, 0.01),
             side_margin=log_uniform(0.005, 0.01),
-            bottom_margin=uniform(0.005, 0.03),
             depth=depth,
-            has_depth_extrude_draw=has_depth_extrude_draw,
+            has_depth_extrude_draw=0.0,
             depth_extrude_multiplier=uniform(2, 5),
             leg_length=uniform(0.1, 0.2),
             leg_length_y=uniform(0.1, 0.15),
-            leg_radius=uniform(0.008, 0.015),
             leg_width=uniform(0.5, 0.8),
-            leg_bevel_width=uniform(0.01, 0.02),
+            tv_164=uniform(0.1, 0.3),
+            tv_165=uniform(0.5, 0.7),
+            tv_176=uniform(0.0, 0.4),
+            tv_241=uniform(0.0, 0.6),
+            tv_243=uniform(0.3, 0.5),
+            tv_250=uniform(0.0, 0.6),
+            width_1=uniform(0.3, 0.6),
+            leg_style=self._leg_type,
+            aspect_ratio_preset=aspect_ratio_preset,
         )
 
     def _sample_spawn_parameters(
         self, params: TVParameters, seed: int, i: int
     ) -> TVParameters:
-        return params.model_copy(
-            update={
-                "tv_164": uniform(0.1, 0.3),
-                "tv_165": uniform(0.5, 0.7),
-                "tv_176": uniform(0.0, 0.4),
-                "tv_241": uniform(0, 0.6),
-                "tv_243": uniform(0.3, 0.5),
-                "tv_250": uniform(0.0, 0.6),
-                "width_1": uniform(0.3, 0.6),
-            }
-        )
+        return params
 
     def apply_parameters(
         self, params: TVParameters, *, spawn_scope: bool = True
     ) -> None:
         if not hasattr(self, "_aspect_ratio"):
-            self._aspect_ratio = float(np.random.choice([9 / 16, 3 / 4]))
+            aspect_ratio_preset = str(np.random.choice(["16:9", "4:3"]))
+            self._aspect_ratio = self._aspect_ratio_by_preset[aspect_ratio_preset]
             self._leg_type = np.random.choice(["two-legged", "single-legged"])
             self._surface = weighted_sample(material_assignments.metal_neutral)()
             self._support_surface = weighted_sample(material_assignments.metal_neutral)()
@@ -159,23 +175,28 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             if isinstance(screen_surface, Text):
                 self._screen_emission = 0.01 if uniform() < 0.1 else uniform(2, 3)
             self._screen_surface = screen_surface
-        self.aspect_ratio = self._aspect_ratio
+        # NOTE: bottom_margin, leg_radius, leg_bevel_width sampled on self from seed; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.bottom_margin = uniform(0.005, 0.03)
+            self.leg_radius = uniform(0.008, 0.015)
+            self.leg_bevel_width = uniform(0.01, 0.02)
+        # NOTE: leg_length effect varies by leg_style (two-legged vs single-legged); excluded from quartet sampling.
+        # NOTE: leg_width only consumed by add_two_legs when leg_style is two-legged; excluded from quartet sampling.
+        self.leg_width = params.leg_width
+        self.aspect_ratio = self._aspect_ratio_by_preset[params.aspect_ratio_preset]
         self.width = params.width
         self.screen_bevel_width = params.screen_bevel_width
         self.side_margin = params.side_margin
-        self.bottom_margin = params.bottom_margin
         self.depth = params.depth
         self.has_depth_extrude = params.has_depth_extrude_draw < 0.4
         if self.has_depth_extrude:
             self.depth_extrude = self.depth * params.depth_extrude_multiplier
         else:
             self.depth_extrude = self.depth * 1.5
-        self.leg_type = self._leg_type
+        self.leg_type = params.leg_style
         self.leg_length = params.leg_length
+        # NOTE: leg_length_y only affects single-leg base width; MonitorFactory always uses single-legged style.
         self.leg_length_y = params.leg_length_y
-        self.leg_radius = params.leg_radius
-        self.leg_width = params.leg_width
-        self.leg_bevel_width = params.leg_bevel_width
         self.surface = self._surface
         self.support_surface = self._support_surface
         self.screen_surface = self._screen_surface
@@ -392,14 +413,20 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
         return [leg, base]
 
 
-class MonitorFactory(TVFactory):
-    parameters_model: ClassVar[type[AssetParameters]] = TVParameters
+class MonitorParameters(TVParameters):
+    pass
 
-    def _sample_init_parameters(self, seed: int) -> TVParameters:
+
+class MonitorFactory(TVFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = MonitorParameters
+
+    def _sample_init_parameters(self, seed: int) -> MonitorParameters:
         params = super()._sample_init_parameters(seed)
-        return params.model_copy(
-            update={
-                "width": log_uniform(0.4, 0.8),
-                "leg_type": "single-legged",
-            }
+        return MonitorParameters.model_validate(
+            params.model_copy(
+                update={
+                    "width": log_uniform(0.4, 0.8),
+                    "leg_style": "single-legged",
+                }
+            ).model_dump()
         )

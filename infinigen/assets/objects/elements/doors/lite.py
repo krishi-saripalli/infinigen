@@ -4,19 +4,19 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
+from infinigen.core.constraints.constraint_language.constants import RoomConstants
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
+from infinigen.core.util.math import FixedSeed
+from infinigen.core.util.random import log_uniform
 
 from .panel import PanelDoorFactory, _panel_door_legacy_init
 
@@ -54,8 +54,63 @@ def _lite_door_legacy_init(
     inst.has_glass = True
 
 
-class LiteDoorParameters(LegacyBridgeParameters):
-    pass
+def _sample_lite_layout(
+    seed: int, constants: Any | None
+) -> tuple[float, float, float, int, int]:
+    if constants is None:
+        constants = RoomConstants()
+    width = constants.door_width
+    height = constants.door_size
+    with FixedSeed(seed):
+        r = uniform()
+        subdivide_glass = False
+        if r <= 1 / 6:
+            dimension = 0.0, 1.0, uniform(0.4, 0.6), 1.0
+            subdivide_glass = True
+        elif r <= 1 / 3:
+            dimension = 0.0, 1.0, 0.0, 1.0
+            subdivide_glass = True
+        elif r <= 1 / 2:
+            dimension = 0.0, uniform(0.3, 0.4), uniform(0.4, 0.6), 1.0
+        elif r <= 2 / 3:
+            dimension = 0.0, uniform(0.3, 0.4), uniform(0.4, 0.6), 1.0
+        elif r <= 5 / 6:
+            dimension = 0.0, 1.0, 0.0, 1.0
+        else:
+            x = uniform(0.3, 0.35)
+            dimension = x, 1 - x, uniform(0.7, 0.8), 1.0
+        x_min, x_max, y_min, _ = dimension
+        if subdivide_glass:
+            x_subdivisions = int(np.random.choice([1, 3]))
+            y_subdivisions = int(height / width * x_subdivisions) + np.random.randint(
+                -1, 2
+            )
+            y_subdivisions = int(np.clip(y_subdivisions, 1, 5))
+        else:
+            x_subdivisions = 1
+            y_subdivisions = 1
+        x_min = float(np.clip(x_min, 0.0, 0.35))
+        x_max = float(np.clip(x_max, 0.6, 1.0))
+        y_min = float(np.clip(y_min, 0.0, 0.8))
+    return x_min, x_max, y_min, x_subdivisions, y_subdivisions
+
+
+class LiteDoorParameters(AssetParameters):
+    x_min: Annotated[float, Field(ge=0.0, le=0.35, json_schema_extra={"editable": True})]
+    x_max: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})]
+    y_min: Annotated[float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": True})]
+    panel_margin: Annotated[
+        float, Field(ge=0.08, le=0.12, json_schema_extra={"editable": True})
+    ]
+    bevel_width: Annotated[
+        float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
+    ]
+    x_subdivisions: Annotated[
+        int, Field(ge=1, le=3, json_schema_extra={"editable": True})
+    ]
+    y_subdivisions: Annotated[
+        int, Field(ge=1, le=5, json_schema_extra={"editable": True})
+    ]
 
 
 class LiteDoorFactory(PanelDoorFactory):
@@ -67,19 +122,36 @@ class LiteDoorFactory(PanelDoorFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> LiteDoorParameters:
-        return legacy_init_to_parameters(
-            LiteDoorParameters,
-            LiteDoorFactory,
-            seed,
-            self.coarse,
-            self._constants,
-            init_fn=_lite_door_legacy_init,
+        x_min, x_max, y_min, x_subdivisions, y_subdivisions = _sample_lite_layout(
+            seed, self._constants
         )
+        with FixedSeed(seed):
+            return LiteDoorParameters(
+                seed=seed,
+                x_min=x_min,
+                x_max=x_max,
+                y_min=y_min,
+                panel_margin=log_uniform(0.08, 0.12),
+                bevel_width=uniform(0.005, 0.01),
+                x_subdivisions=x_subdivisions,
+                y_subdivisions=y_subdivisions,
+            )
 
     def apply_parameters(
         self, params: LiteDoorParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _panel_door_legacy_init(self, params.seed, self.coarse, self._constants)
+        self.x_min = params.x_min
+        self.x_max = params.x_max
+        self.y_min = params.y_min
+        self.y_max = 1.0
+        self.panel_margin = params.panel_margin
+        self.bevel_width = params.bevel_width
+        self.x_subdivisions = params.x_subdivisions
+        self.y_subdivisions = params.y_subdivisions
+        self.has_glass = True
+        self._use_fixed_spawn_draws = spawn_scope
 
     def make_panels(self):
         x_range = (

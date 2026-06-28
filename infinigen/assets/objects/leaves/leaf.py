@@ -3,39 +3,97 @@
 
 # Authors: Alejandro Newell, Yiming Zuo, Alexander Raistrick
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
+from pydantic import Field
 
 from infinigen.assets.objects.trees.utils import mesh
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 
 C = bpy.context
-D = bpy.data
 
 
-class LeafFactory(AssetFactory):
+class LeafVineParameters(AssetParameters):
+    leaf_width: Annotated[
+        float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})
+    ] = 0.5
+    alpha: Annotated[
+        float, Field(ge=0.1, le=0.5, json_schema_extra={"editable": True})
+    ] = 0.3
+    z_scaling: Annotated[
+        float, Field(ge=-0.1, le=0.1, json_schema_extra={"editable": True})
+    ] = 0.0
+    width_noise: Annotated[
+        float, Field(ge=-1.0, le=1.0, json_schema_extra={"editable": True})
+    ] = 0.0
+    wave_height: Annotated[
+        float, Field(ge=-0.9, le=0.9, json_schema_extra={"editable": True})
+    ] = 0.0
+    wave_width: Annotated[
+        float, Field(ge=0.55, le=0.95, json_schema_extra={"editable": True})
+    ] = 0.75
+
+
+class LeafFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = LeafVineParameters
     scale = 0.3
 
-    def __init__(self, factory_seed, genome: dict = None, coarse=False):
+    def __init__(self, factory_seed, genome: dict | None = None, coarse=False):
         super(LeafFactory, self).__init__(factory_seed, coarse=coarse)
-        self.genome = dict(
-            leaf_width=0.5,
-            alpha=0.3,
-            use_wave=True,
-            x_offset=0,
-            flip_leaf=False,
-            z_scaling=0,
-            width_rand=0.33,
+        self._genome_override = genome
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> LeafVineParameters:
+        params = LeafVineParameters(seed=seed)
+        if self._genome_override:
+            updates = {
+                k: v
+                for k, v in self._genome_override.items()
+                if k in LeafVineParameters.model_fields
+            }
+            params = params.model_copy(update=updates)
+        return params
+
+    def _sample_spawn_parameters(
+        self, params: LeafVineParameters, seed: int, i: int
+    ) -> LeafVineParameters:
+        return params.model_copy(
+            update={
+                "width_noise": float(np.random.randn()),
+                "wave_height": float(np.random.randn() * 0.3),
+                "wave_width": float(0.75 + np.random.randn() * 0.1),
+            }
         )
-        if genome:
-            for k, g in genome.items():
-                assert k in self.genome
-                self.genome[k] = g
+
+    def apply_parameters(
+        self, params: LeafVineParameters, *, spawn_scope: bool = True
+    ) -> None:
+        genome_override = self._genome_override or {}
+        self.genome = {
+            "leaf_width": params.leaf_width,
+            "alpha": params.alpha,
+            "use_wave": genome_override.get("use_wave", True),
+            "x_offset": genome_override.get("x_offset", 0.0),
+            "flip_leaf": genome_override.get("flip_leaf", False),
+            "z_scaling": params.z_scaling,
+            "width_rand": genome_override.get("width_rand", 0.33),
+        }
+        self.width_noise = params.width_noise
+        self.wave_height = params.wave_height
+        self.wave_width = params.wave_width
+        self.wave_speed = float(np.random.rand())
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:
-        # bpy.ops.object.mode_set(mode = 'OBJECT')
         bpy.ops.mesh.primitive_circle_add(
             enter_editmode=False, align="WORLD", location=(0, 0, 0), scale=(1, 1, 1)
         )
@@ -43,23 +101,20 @@ class LeafFactory(AssetFactory):
         bpy.ops.mesh.edge_face_add()
 
         obj = bpy.context.active_object
-        min_radius = 0.02
-        radii_ref = [1]
         n = len(obj.data.vertices) // 2
 
-        # define origin point
         mesh.select_vtx_by_idx(obj, [0, -1], deselect=True)
         bpy.ops.mesh.subdivide()
 
         a = np.linspace(0, np.pi, n)
         if self.genome["flip_leaf"]:
             a = a[::-1]
+        width_noise = (
+            self.width_noise if self._use_fixed_spawn_draws else float(np.random.randn())
+        )
         x = (
             np.sin(a)
-            * (
-                self.genome["leaf_width"]
-                + np.random.randn() * self.genome["width_rand"]
-            )
+            * (self.genome["leaf_width"] + width_noise * self.genome["width_rand"])
             + self.genome["x_offset"]
         )
         y = -np.cos(0.9 * (a - self.genome["alpha"]))
@@ -76,10 +131,23 @@ class LeafFactory(AssetFactory):
         obj.data.vertices.foreach_set("co", full_coords)
 
         if self.genome["use_wave"]:
+            wave_height = (
+                self.wave_height
+                if self._use_fixed_spawn_draws
+                else float(np.random.randn() * 0.3)
+            )
+            wave_width = (
+                self.wave_width
+                if self._use_fixed_spawn_draws
+                else float(0.75 + np.random.randn() * 0.1)
+            )
+            wave_speed = (
+                self.wave_speed if self._use_fixed_spawn_draws else float(np.random.rand())
+            )
             bpy.ops.object.modifier_add(type="WAVE")
-            bpy.context.object.modifiers["Wave"].height = np.random.randn() * 0.3
-            bpy.context.object.modifiers["Wave"].width = 0.75 + np.random.randn() * 0.1
-            bpy.context.object.modifiers["Wave"].speed = np.random.rand()
+            bpy.context.object.modifiers["Wave"].height = wave_height
+            bpy.context.object.modifiers["Wave"].width = wave_width
+            bpy.context.object.modifiers["Wave"].speed = wave_speed
 
         mesh.finalize_obj(obj)
         C.scene.cursor.location = obj.data.vertices[-1].co
@@ -91,72 +159,3 @@ class LeafFactory(AssetFactory):
         butil.apply_transform(obj)
 
         return obj
-
-
-"""
-class BerryFactory(AssetFactory):
-
-    def __init__(self, factory_seed, genome, coarse=False):
-        super(BerryFactory, self).__init__(factory_seed, coarse=coarse)
-        self.genome = dict(leaf_width=0.5, alpha=0.3, use_wave=True)
-        self.genome.update(genome)
-
-    def create_asset(self, **params) -> bpy.types.Object:
-        butil.select_none()
-        bpy.ops.mesh.primitive_uv_sphere_add(enter_editmode=False, align='WORLD',
-                                         location=(0, 0, 0), scale=(1, 1, 1))
-        obj = bpy.context.active_object
-
-        if self.genome['use_wave']:
-            bpy.ops.object.modifier_add(type='WAVE')
-            bpy.context.object.modifiers["Wave"].height = np.random.randn() * .3
-            bpy.context.object.modifiers["Wave"].width = 0.75 + \
-                np.random.randn() * .1
-            bpy.context.object.modifiers["Wave"].speed = np.random.rand()
-
-        mesh.finalize_obj(obj)
-        C.scene.cursor.location = obj.data.vertices[0].co
-        bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
-
-        obj.location = (0, 0, 0)
-        tag_object(obj, 'leaf')
-
-        return obj
-"""
-
-"""
-def init_berries(n_leaves=5, im_mat=None, **leaf_kargs):
-    # Initializing leaves
-    leaves = [create_leaf(**leaf_kargs) for _ in range(n_leaves)]
-    src_hue = np.random.uniform() * .6 + .01
-    material_idx_offset = len(materials.get_materials('Leaf'))
-
-    n_slots = 1 + len(leaves)
-    for i in range(n_slots):
-        if i == 0 and material_idx_offset == 0:
-            materials.init_color_material(
-                (.1, .4, .1), 'Leaf')  # Bark material
-        else:
-            materials.create_leaf_material(src_hue)
-
-    l_mat = materials.get_materials('Leaf')
-    for l_idx, l in enumerate(leaves):
-        helper.set_active_obj(l)
-        for i in range(n_slots):
-            bpy.ops.object.material_slot_add()
-            l.active_material_index = i
-            if i == 0:
-                l.active_material = l_mat[0] if im_mat is None else im_mat
-            else:
-                l.active_material = l_mat[i + material_idx_offset]
-            if i == l_idx + 1:
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_mode(type="FACE")
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.object.material_slot_assign()
-
-    bpy.ops.object.mode_set(mode='OBJECT')
-    c_name = helper.create_collection('Leaves', leaves)
-
-    return leaves, c_name
-"""

@@ -2,10 +2,16 @@
 # This source code is licensed under the BSD 3-Clause license found in the LICENSE file in the root directory of this source tree.
 
 # Authors: Lingjie Mei
+
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 import shapely
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.materials.ceramic import ceramic, marble
 from infinigen.assets.materials.wood import wood_tile
@@ -19,24 +25,59 @@ from infinigen.assets.utils.shapes import (
     safe_polygon2obj,
 )
 from infinigen.core.placement.factory import AssetFactory, make_asset_collection
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.random import random_general as rg
 
 
-class CountertopFactory(AssetFactory):
+class CountertopParameters(AssetParameters):
+    thickness: Annotated[
+        float, Field(ge=0.02, le=0.06, json_schema_extra={"editable": False})
+    ]
+    has_extrusion_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ] = 1.0
+    extrusion: Annotated[
+        float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})
+    ] = 0.025
+
+
+class CountertopFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = CountertopParameters
     surfaces = "weighted_choice", (5, marble), (2, ceramic), (2, wood_tile)
 
     def __init__(self, factory_seed, coarse=False):
         super().__init__(factory_seed, coarse)
-        self.surface = rg(self.surfaces)
-        self.thickness = uniform(0.02, 0.06)
-        self.extrusion = 0 if uniform() < 0.4 else uniform(0.02, 0.03)
         self.h_snap = 0.5
         self.v_snap = 0.5
         self.v_merge = 0.1
         self.z_range = 0.5, 1.5
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> CountertopParameters:
+        return CountertopParameters(
+            seed=seed,
+            thickness=uniform(0.02, 0.06),
+            has_extrusion_draw=1.0,
+            extrusion=uniform(0.02, 0.03),
+        )
+
+    def apply_parameters(
+        self, params: CountertopParameters, *, spawn_scope: bool = True
+    ) -> None:
         self.surface = rg(self.surfaces)
+        self.thickness = params.thickness
+        self.extrusion = (
+            0.0
+            if params.has_extrusion_draw < 0.4
+            else params.extrusion
+        )
+        self._use_fixed_spawn_draws = spawn_scope
 
     @staticmethod
     def generate_shelves():
@@ -164,7 +205,7 @@ class CountertopFactory(AssetFactory):
         if shelves_generated:
             for s in shelves.objects:
                 s.parent = obj
-        return objs[0]
+        return obj
 
     @staticmethod
     def rebuffer(shape, distance):

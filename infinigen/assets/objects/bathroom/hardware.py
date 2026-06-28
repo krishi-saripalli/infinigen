@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -15,7 +15,10 @@ from infinigen.assets.composition import material_assignments
 from infinigen.assets.utils.decorate import subsurf
 from infinigen.assets.utils.object import join_objects, new_base_cylinder, new_cube
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
@@ -26,31 +29,51 @@ class HardwareParameters(AssetParameters):
         float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})
     ]
     attachment_depth: Annotated[
-        float, Field(ge=0.01, le=0.015, json_schema_extra={"editable": True})
+        float, Field(ge=0.01, le=0.015, json_schema_extra={"editable": False})
     ]
     radius: Annotated[float, Field(ge=0.01, le=0.015, json_schema_extra={"editable": True})]
     depth: Annotated[float, Field(ge=0.06, le=0.1, json_schema_extra={"editable": True})]
-    is_circular_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    is_circular: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
     hook_length: Annotated[float, Field(ge=2.0, le=4.0, json_schema_extra={"editable": True})]
     holder_length: Annotated[
-        float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": True})
+        float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": False})
     ]
-    bar_length: Annotated[float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": True})]
+    bar_length: Annotated[float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": False})]
     extension_length: Annotated[
-        float, Field(ge=2.0, le=3.0, json_schema_extra={"editable": True})
+        float, Field(ge=2.0, le=3.0, json_schema_extra={"editable": False})
     ]
-    ring_radius: Annotated[float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": True})]
+    ring_radius: Annotated[float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": False})]
     scratch_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
     edge_wear_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
     ring_minor_scale: Annotated[
-        float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": True})
+        float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})
     ] = 0.55
+    hardware_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["hook", "holder", "bar", "ring"],
+            }
+        ),
+    ] = "hook"
 
 
 class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
@@ -62,7 +85,7 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _resolve_init_state(
         self, params: HardwareParameters
-    ) -> tuple[str, Any, Any | None, Any | None]:
+    ) -> tuple[Any, Any | None, Any | None]:
         with FixedSeed(params.seed):
             uniform(0.02, 0.03)
             uniform()
@@ -71,7 +94,6 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             uniform(0.01, 0.015)
             uniform(0.06, 0.1)
             uniform()
-            hardware_type = np.random.choice(["hook", "holder", "bar", "ring"])
             uniform(2, 4)
             uniform(0.15, 0.25)
             uniform(0.4, 0.8)
@@ -90,7 +112,7 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             if params.edge_wear_draw > edge_wear_prob
             else edge_wear_fn()
         )
-        return hardware_type, surface_material_gen, scratch, edge_wear
+        return surface_material_gen, scratch, edge_wear
 
     def _sample_init_parameters(self, seed: int) -> HardwareParameters:
         attachment_radius = uniform(0.02, 0.03)
@@ -102,7 +124,7 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             attachment_depth=uniform(0.01, 0.015),
             radius=uniform(0.01, 0.015),
             depth=uniform(0.06, 0.1),
-            is_circular_draw=uniform(),
+            is_circular=bool(uniform() < 0.5),
             hook_length=uniform(2, 4),
             holder_length=uniform(0.15, 0.25),
             bar_length=uniform(0.4, 0.8),
@@ -110,6 +132,7 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             ring_radius=log_uniform(2, 6),
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
+            hardware_type="hook",
         )
 
     def _sample_spawn_parameters(
@@ -120,15 +143,13 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: HardwareParameters, *, spawn_scope: bool = True
     ) -> None:
-        hardware_type, surface_material_gen, scratch, edge_wear = (
-            self._resolve_init_state(params)
-        )
+        surface_material_gen, scratch, edge_wear = self._resolve_init_state(params)
         self.attachment_radius = params.attachment_radius
         self.attachment_depth = params.attachment_depth
         self.radius = params.radius
         self.depth = params.depth
-        self.is_circular = params.is_circular_draw < 0.5
-        self.hardware_type = hardware_type
+        self.is_circular = params.is_circular
+        self.hardware_type = params.hardware_type
         self.hook_length = params.attachment_radius * params.hook_length
         self.holder_length = params.holder_length
         self.bar_length = params.bar_length

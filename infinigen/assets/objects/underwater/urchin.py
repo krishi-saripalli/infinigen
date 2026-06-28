@@ -26,31 +26,14 @@ from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
 class UrchinParameters(AssetParameters):
-    base_hue: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    freq: Annotated[float, Field(ge=100.0, le=200.0, json_schema_extra={"editable": True})]
-    z_scale_ratio: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.9
-    z_stretch_ratio: Annotated[
-        float, Field(ge=0.6, le=1.2, json_schema_extra={"editable": True})
-    ] = 0.9
-    extrude_height: Annotated[
-        float, Field(ge=1.0, le=5.0, json_schema_extra={"editable": True})
-    ] = 2.0
-    girdle_size: Annotated[
-        float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.8
-    off: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})] = 0.5
-    phase: Annotated[float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})] = 0.5
-    anim_seed: Annotated[int, Field(ge=0, le=99999, json_schema_extra={"editable": True})] = (
-        0
-    )
-    u: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})] = 0.9
-    v: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})] = 0.9
+    base_hue: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ]
 
 
 class UrchinFactory(ParameterizedAssetFactory, AssetFactory):
@@ -72,47 +55,31 @@ class UrchinFactory(ParameterizedAssetFactory, AssetFactory):
         return UrchinParameters(
             seed=seed,
             base_hue=base_hue,
-            freq=log_uniform(100, 200),
-        )
-
-    def _sample_spawn_parameters(
-        self, params: UrchinParameters, seed: int, i: int
-    ) -> UrchinParameters:
-        anim_seed = int(uniform(0, 100000))
-        phase = uniform(0.2, 0.8)
-        return params.model_copy(
-            update={
-                "z_scale_ratio": uniform(0.8, 1.0),
-                "z_stretch_ratio": log_uniform(0.6, 1.2),
-                "extrude_height": log_uniform(1.0, 5.0),
-                "girdle_size": uniform(0.6, 1.0),
-                "off": uniform(0, 1),
-                "phase": phase,
-                "anim_seed": anim_seed,
-                "u": phase * uniform(0.8, 1.0),
-                "v": (1 - phase) * uniform(0.8, 1.0),
-            }
         )
 
     def apply_parameters(
         self, params: UrchinParameters, *, spawn_scope: bool = True
     ) -> None:
         self.base_hue = params.base_hue
-        self.freq = 1 / params.freq
+        # NOTE: freq drives animation drivers only and does not elicit a clear visual change in exported (static) geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.freq = 1 / log_uniform(100, 200)
         if not hasattr(self, "_materials"):
             self._materials = self._sample_materials(params.base_hue)
         self.materials = self._materials
+        # NOTE: z_scale_ratio, z_stretch_ratio, extrude_height, girdle_size, off, phase, anim_seed, u, v resampled in _sample_spawn_parameters overwrote edits (off/phase/u/v/anim_seed are animation-only in static export); sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self._z_scale_ratio = uniform(0.8, 1.0)
+            self._z_stretch_ratio = log_uniform(0.6, 1.2)
+            self._extrude_height = log_uniform(1.0, 5.0)
+            self._girdle_size = uniform(0.6, 1.0)
+            self._off = uniform(0, 1)
+            phase = uniform(0.2, 0.8)
+            self._phase = phase
+            self._anim_seed = int(uniform(0, 100000))
+            self._u = phase * uniform(0.8, 1.0)
+            self._v = (1 - phase) * uniform(0.8, 1.0)
         self._use_fixed_spawn_draws = spawn_scope
-        if spawn_scope:
-            self._z_scale_ratio = params.z_scale_ratio
-            self._z_stretch_ratio = params.z_stretch_ratio
-            self._extrude_height = params.extrude_height
-            self._girdle_size = params.girdle_size
-            self._off = params.off
-            self._phase = params.phase
-            self._anim_seed = params.anim_seed
-            self._u = params.u
-            self._v = params.v
 
     def create_asset(self, placeholder, face_size=0.01, **params):
         obj = new_icosphere(subdivisions=4)

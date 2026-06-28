@@ -4,15 +4,18 @@
 # Authors: Lingjie Mei
 
 
+from __future__ import annotations
+
 import logging
 from functools import reduce
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import gin
 import numpy as np
 import trimesh.convex
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.utils.decorate import geo_extension
@@ -23,10 +26,7 @@ from infinigen.core.placement import detail
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.placement.split_in_view import split_inview
 from infinigen.core.tagging import tag_object
@@ -53,8 +53,41 @@ def _boulder_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
         inst.has_horizontal_cut, inst.is_slab = inst.config_mappings[method]
 
 
-class BoulderParameters(LegacyBridgeParameters):
-    pass
+class BoulderParameters(AssetParameters):
+    do_voronoi: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    is_slab_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ] = 0.0
+    scale_x: Annotated[
+        float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": False})
+    ] = 1.0
+    scale_y: Annotated[
+        float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": False})
+    ] = 1.0
+    scale_z: Annotated[
+        float, Field(ge=0.1, le=0.8, json_schema_extra={"editable": False})
+    ] = 0.5
+    boulder_scale: Annotated[
+        float, Field(ge=0.5, le=2.0, json_schema_extra={"editable": False})
+    ] = 1.0
+    tilt_x: Annotated[
+        float, Field(ge=-0.1309, le=0.1309, json_schema_extra={"editable": False})
+    ] = 0.0
+    yaw_z: Annotated[
+        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
+    ] = 0.0
+    voronoi_scale_1: Annotated[
+        float, Field(ge=0.2, le=0.5, json_schema_extra={"editable": False})
+    ] = 0.35
+    voronoi_scale_2: Annotated[
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": False})
+    ] = 0.075
+    extrude_scale: Annotated[
+        float, Field(ge=0.5, le=1.5, json_schema_extra={"editable": False})
+    ] = 1.0
 
 
 class BoulderFactory(ParameterizedAssetFactory, AssetFactory):
@@ -78,18 +111,58 @@ class BoulderFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BoulderParameters:
-        return legacy_init_to_parameters(
-            BoulderParameters,
-            BoulderFactory,
-            seed,
-            self.coarse,
-            init_fn=_boulder_legacy_init,
+        return BoulderParameters(seed=seed, do_voronoi=True, is_slab_draw=0.0)
+
+    def _sample_spawn_parameters(
+        self, params: BoulderParameters, seed: int, i: int
+    ) -> BoulderParameters:
+        if params.is_slab_draw >= 0.8:
+            scale_x = log_uniform(0.5, 2.0)
+            scale_y = log_uniform(0.5, 2.0)
+            scale_z = log_uniform(0.1, 0.15)
+        else:
+            scale_x = log_uniform(0.4, 1.2)
+            scale_y = log_uniform(0.4, 1.2)
+            scale_z = log_uniform(0.4, 0.8)
+        return params.model_copy(
+            update={
+                "scale_x": scale_x,
+                "scale_y": scale_y,
+                "scale_z": scale_z,
+                "boulder_scale": log_uniform(0.5, 2.0),
+                "tilt_x": uniform(-np.pi / 24, np.pi / 24),
+                "yaw_z": uniform(0, np.pi * 2),
+                "voronoi_scale_1": log_uniform(0.2, 0.5),
+                "voronoi_scale_2": log_uniform(0.05, 0.1),
+                "extrude_scale": uniform(0.5, 1.5),
+            }
         )
 
     def apply_parameters(
         self, params: BoulderParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self.cameras = self._meshing_cameras
+        self.cam_meshing_max_dist = self._cam_meshing_max_dist
+        self.adapt_mesh_method = self._adapt_mesh_method
+        self.octree_depth = 3
+        with FixedSeed(params.seed):
+            self.rock_surface = weighted_sample(material_assignments.rock)()
+            is_slab = params.is_slab_draw >= 0.8
+            method = "slab" if is_slab else "boulder"
+            self.has_horizontal_cut, self.is_slab = self.config_mappings[method]
+        self.do_voronoi = params.do_voronoi
+        self._use_fixed_spawn_draws = spawn_scope
+        if spawn_scope:
+            self._scale_x = params.scale_x
+            self._scale_y = params.scale_y
+            self._scale_z = params.scale_z
+            self._boulder_scale = params.boulder_scale
+            self._tilt_x = params.tilt_x
+            self._yaw_z = params.yaw_z
+            self._voronoi_scale_1 = params.voronoi_scale_1
+            self._voronoi_scale_2 = params.voronoi_scale_2
+            self._extrude_scale = params.extrude_scale
+
 
     @gin.configurable
     def create_placeholder(self, boulder_scale=1, **kwargs) -> bpy.types.Object:
@@ -97,23 +170,37 @@ class BoulderFactory(ParameterizedAssetFactory, AssetFactory):
 
         vertices = np.random.uniform(-1, 1, (32, 3))
         obj = trimesh2obj(trimesh.convex.convex_hull(vertices))
-        surface.add_geomod(obj, self.geo_extrusion, apply=True)
+        extrude_scale = self._extrude_scale if self._use_fixed_spawn_draws else 1.0
+        surface.add_geomod(obj, self.geo_extrusion, apply=True, input_args=[extrude_scale])
         butil.modify_mesh(
             obj, "SUBSURF", render_levels=2, levels=2, subdivision_type="SIMPLE"
         )
 
         obj.location[-1] += obj.dimensions[-1] * 0.2
         butil.apply_transform(obj, loc=True)
-        if self.is_slab:
-            obj.scale = *log_uniform(0.5, 2.0, 2), log_uniform(0.1, 0.15)
+        if self._use_fixed_spawn_draws:
+            obj.scale = self._scale_x, self._scale_y, self._scale_z
+            effective_scale = self._boulder_scale
+            tilt_x = self._tilt_x
+            yaw_z = self._yaw_z
+            voronoi_scale_1 = self._voronoi_scale_1
+            voronoi_scale_2 = self._voronoi_scale_2
         else:
-            obj.scale = *log_uniform(0.4, 1.2, 2), log_uniform(0.4, 0.8)
+            if self.is_slab:
+                obj.scale = *log_uniform(0.5, 2.0, 2), log_uniform(0.1, 0.15)
+            else:
+                obj.scale = *log_uniform(0.4, 1.2, 2), log_uniform(0.4, 0.8)
+            effective_scale = boulder_scale
+            tilt_x = uniform(-np.pi / 24, np.pi / 24)
+            yaw_z = uniform(0, np.pi * 2)
+            voronoi_scale_1 = log_uniform(0.2, 0.5)
+            voronoi_scale_2 = log_uniform(0.05, 0.1)
 
-        obj.scale *= boulder_scale
+        obj.scale = [s * effective_scale for s in obj.scale]
         butil.apply_transform(obj)
-        obj.rotation_euler[0] = uniform(-np.pi / 24, np.pi / 24)
+        obj.rotation_euler[0] = tilt_x
         butil.apply_transform(obj)
-        obj.rotation_euler[-1] = uniform(0, np.pi * 2)
+        obj.rotation_euler[-1] = yaw_z
         butil.apply_transform(obj)
 
         with butil.SelectObjects(obj):
@@ -135,14 +222,14 @@ class BoulderFactory(ParameterizedAssetFactory, AssetFactory):
 
         if self.do_voronoi:
             voronoi_texture = bpy.data.textures.new(name="boulder", type="VORONOI")
-            voronoi_texture.noise_scale = log_uniform(0.2, 0.5)
+            voronoi_texture.noise_scale = voronoi_scale_1
             voronoi_texture.distance_metric = "DISTANCE"
             butil.modify_mesh(
                 obj, "DISPLACE", texture=voronoi_texture, strength=0.01, mid_level=0
             )
 
             voronoi_texture = bpy.data.textures.new(name="boulder", type="VORONOI")
-            voronoi_texture.noise_scale = log_uniform(0.05, 0.1)
+            voronoi_texture.noise_scale = voronoi_scale_2
             voronoi_texture.distance_metric = "DISTANCE"
             butil.modify_mesh(
                 obj, "DISPLACE", texture=voronoi_texture, strength=0.01, mid_level=0

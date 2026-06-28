@@ -4,12 +4,11 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
-from pydantic import Field
 
 from infinigen.assets.materials import text
 from infinigen.assets.utils.object import new_cube
@@ -17,13 +16,12 @@ from infinigen.assets.utils.uv import wrap_six_sides
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
 class FoodBoxParameters(AssetParameters):
-    texture_shared_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
+    pass
 
 
 class FoodBoxFactory(ParameterizedAssetFactory, AssetFactory):
@@ -33,11 +31,17 @@ class FoodBoxFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_texture_shared(self, seed: int) -> bool:
+        # NOTE: texture_shared_draw is sampled on self in apply_parameters; excluded from quartet sampling (material-only, not exported geometry).
+        with FixedSeed(seed):
+            return uniform() < 0.4
+
     def _sample_init_parameters(self, seed: int) -> FoodBoxParameters:
         dimensions = np.sort(log_uniform(0.05, 0.3, 3)).tolist()
         self._dimensions = np.array([dimensions[1], dimensions[0], dimensions[2]])
         self._surface = text.Text(seed)()
-        return FoodBoxParameters(seed=seed, texture_shared_draw=uniform())
+        self.texture_shared = self._sample_texture_shared(seed)
+        return FoodBoxParameters(seed=seed)
 
     def apply_parameters(
         self, params: FoodBoxParameters, *, spawn_scope: bool = True
@@ -48,7 +52,7 @@ class FoodBoxFactory(ParameterizedAssetFactory, AssetFactory):
             self._surface = text.Text(params.seed)()
         self.dimensions = self._dimensions
         self.surface = self._surface
-        self.texture_shared = params.texture_shared_draw < 0.4
+        self.texture_shared = self._sample_texture_shared(params.seed)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **params):

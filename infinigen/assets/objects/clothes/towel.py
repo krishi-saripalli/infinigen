@@ -4,7 +4,7 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bmesh
 import bpy
@@ -30,36 +30,41 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
-def _towel_legacy_init(inst: TowelFactory, factory_seed: int, coarse: bool = False) -> None:
-    AssetFactory.__init__(inst, factory_seed, coarse)
-    inst.width = log_uniform(0.3, 0.6)
-    inst.length = inst.width * log_uniform(1, 1.5)
-    inst.thickness = log_uniform(0.003, 0.01)
-    prob = np.array([2, 1])
-    inst.fold_type = np.random.choice(["fold", "roll"], p=prob / prob.sum())
-    inst.folds = np.random.randint(2, 4)
-    inst.extra_thickness = inst.thickness * uniform(0.2, 0.3)
-    inst.fold_count = 15
-    inst.roll_count = 256
-    inst.roll_total = inst.compute_roll_total()
-    surface_gen_class = weighted_sample(material_assignments.towel)
-    inst.surface_material_gen = surface_gen_class()
-    inst.surface = inst.surface_material_gen()
-    if inst.surface == ArtRug:
-        inst.surface = inst.surface(inst.factory_seed)
-
-
-class TowelParameters(LegacyBridgeParameters):
-    pass
+class TowelParameters(AssetParameters):
+    width: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})]
+    length_ratio: Annotated[float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": False})]
+    thickness: Annotated[float, Field(ge=0.003, le=0.01, json_schema_extra={"editable": False})]
+    folds: Annotated[int, Field(ge=2, le=3, json_schema_extra={"editable": True})]
+    wrap_strength: Annotated[
+        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})
+    ] = 0.3
+    bevel_width_factor: Annotated[
+        float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": False})
+    ] = 0.6
+    geo_extension: Annotated[
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": False})
+    ] = 0.075
+    mirror_fold_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
+    ] = 0.5
+    fold_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["fold", "roll"],
+            }
+        ),
+    ] = "fold"
 
 
 class TowelFactory(ParameterizedAssetFactory, AssetFactory):
@@ -69,19 +74,62 @@ class TowelFactory(ParameterizedAssetFactory, AssetFactory):
         super(TowelFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _resolve_init_state(
+        self, seed: int
+    ) -> tuple[Any, Any]:
+        with FixedSeed(seed):
+            surface_gen_class = weighted_sample(material_assignments.towel)
+            surface_material_gen = surface_gen_class()
+            surface_mat = surface_material_gen()
+            if surface_mat == ArtRug:
+                surface_mat = surface_mat(seed)
+        return surface_material_gen, surface_mat
+
     def _sample_init_parameters(self, seed: int) -> TowelParameters:
-        return legacy_init_to_parameters(
-            TowelParameters,
-            TowelFactory,
-            seed,
-            self.coarse,
-            init_fn=_towel_legacy_init,
+        return TowelParameters(
+            seed=seed,
+            width=log_uniform(0.3, 0.6),
+            length_ratio=log_uniform(1, 1.5),
+            thickness=log_uniform(0.003, 0.01),
+            folds=int(np.random.randint(2, 4)),
+            fold_type="fold",
+        )
+
+    def _sample_spawn_parameters(
+        self, params: TowelParameters, seed: int, i: int
+    ) -> TowelParameters:
+        return params.model_copy(
+            update={
+                "wrap_strength": uniform(0.2, 0.4),
+                "bevel_width_factor": uniform(0.4, 0.8),
+                "geo_extension": uniform(0.05, 0.1),
+                "mirror_fold_draw": uniform(),
+            }
         )
 
     def apply_parameters(
         self, params: TowelParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        surface_material_gen, surface_mat = self._resolve_init_state(params.seed)
+        # NOTE: width, length_ratio, and thickness effects vary by fold_type (fold vs roll) branch; excluded from quartet sampling.
+        self.width = params.width
+        self.length = params.width * params.length_ratio
+        self.thickness = params.thickness
+        self.fold_type = params.fold_type
+        self.folds = params.folds
+        # NOTE: extra_thickness_ratio does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.extra_thickness = params.thickness * uniform(0.2, 0.3)
+        self.fold_count = 15
+        self.roll_count = 256
+        self.roll_total = self.compute_roll_total()
+        self.surface_material_gen = surface_material_gen
+        self.surface = surface_mat
+        self.wrap_strength = params.wrap_strength
+        self.bevel_width_factor = params.bevel_width_factor
+        self.geo_extension = params.geo_extension
+        self.mirror_fold_draw = params.mirror_fold_draw
+        self._use_fixed_spawn_draws = spawn_scope
 
     def fold(self, obj):
         x, y, z = read_co(obj).T
@@ -129,7 +177,10 @@ class TowelFactory(ParameterizedAssetFactory, AssetFactory):
             ),
         )
         write_co(obj, np.stack([x__, y, z_], -1))
-        if uniform() < 0.5:
+        mirror_draw = (
+            self.mirror_fold_draw if self._use_fixed_spawn_draws else uniform()
+        )
+        if mirror_draw < 0.5:
             mirror(obj)
         return obj
 
@@ -163,6 +214,15 @@ class TowelFactory(ParameterizedAssetFactory, AssetFactory):
         write_co(obj, np.stack([r * np.cos(t), y, r * np.sin((t))], -1))
 
     def create_asset(self, **params) -> bpy.types.Object:
+        wrap_strength = (
+            self.wrap_strength if self._use_fixed_spawn_draws else uniform(0.2, 0.4)
+        )
+        bevel_factor = (
+            self.bevel_width_factor if self._use_fixed_spawn_draws else uniform(0.4, 0.8)
+        )
+        geo_ext = (
+            self.geo_extension if self._use_fixed_spawn_draws else uniform(0.05, 0.1)
+        )
         obj = new_plane()
         if self.fold_type == "roll":
             obj.scale = self.length / 2, self.width / 2, 1
@@ -172,7 +232,7 @@ class TowelFactory(ParameterizedAssetFactory, AssetFactory):
         i = None
         if self.fold_type == "roll":
             i = self.pre_roll(obj)
-        wrap_sides(obj, self.surface, "z", "x", "y", strength=uniform(0.2, 0.4))
+        wrap_sides(obj, self.surface, "z", "x", "y", strength=wrap_strength)
         butil.modify_mesh(obj, "SOLIDIFY", thickness=self.thickness, offset=1)
         if self.fold_type == "roll":
             self.roll(obj, i)
@@ -183,10 +243,8 @@ class TowelFactory(ParameterizedAssetFactory, AssetFactory):
             subdivide_edge_ring(obj, 16, (1, 0, 0))
             subdivide_edge_ring(obj, 16, (0, 1, 0))
         butil.modify_mesh(
-            obj, "BEVEL", width=self.thickness * uniform(0.4, 0.8), segments=2
+            obj, "BEVEL", width=self.thickness * bevel_factor, segments=2
         )
-        surface.add_geomod(
-            obj, geo_extension, apply=True, input_args=[uniform(0.05, 0.1)]
-        )
+        surface.add_geomod(obj, geo_extension, apply=True, input_args=[geo_ext])
         subsurf(obj, 1)
         return obj

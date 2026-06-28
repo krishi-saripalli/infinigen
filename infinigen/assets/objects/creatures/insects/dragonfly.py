@@ -4,16 +4,25 @@
 # Authors: Yiming Zuo
 
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import gin
 import numpy as np
 from numpy.random import normal as N
 from numpy.random import uniform as U
+from pydantic import Field
 
 from infinigen.core import surface
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement import animation_policy
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.color import hsv2rgba
 from infinigen.core.util.math import FixedSeed
@@ -441,13 +450,30 @@ def geometry_dragonfly(nw: NodeWrangler, **kwargs):
     group_output = nw.new_node(Nodes.GroupOutput, input_kwargs={"Geometry": result})
 
 
+class DragonflyParameters(AssetParameters):
+    tail_length: Annotated[
+        float, Field(ge=2.5, le=3.5, json_schema_extra={"editable": True})
+    ]
+    wing_scale: Annotated[
+        float, Field(ge=0.9, le=1.1, json_schema_extra={"editable": True})
+    ]
+    leg_scale: Annotated[
+        float, Field(ge=0.9, le=1.1, json_schema_extra={"editable": False})
+    ]
+    # NOTE: drives wing-flap animation via SceneTime; no effect on static exported geometry.
+    flap_mag: Annotated[
+        float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": False})
+    ]
+
+
 @gin.configurable
-class DragonflyFactory(AssetFactory):
+class DragonflyFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = DragonflyParameters
+
     def __init__(self, factory_seed, coarse=False, bvh=None, **_):
-        super(DragonflyFactory, self).__init__(factory_seed, coarse=coarse)
         self.bvh = bvh
+        super().__init__(factory_seed, coarse=coarse)
         with FixedSeed(factory_seed):
-            self.genome = self.sample_geo_genome()
             y = U(20, 60)
             self.policy = animation_policy.AnimPolicyRandomForwardWalk(
                 forward_vec=(1, 0, 0),
@@ -456,9 +482,40 @@ class DragonflyFactory(AssetFactory):
                 yaw_dist=("uniform", -y, y),
                 rot_vars=[0, 0, 0],
             )
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> DragonflyParameters:
+        return DragonflyParameters(
+            seed=seed,
+            tail_length=U(2.5, 3.5),
+            wing_scale=U(0.9, 1.1),
+            leg_scale=U(0.9, 1.1),
+            flap_mag=U(0.15, 0.25),
+        )
+
+    def apply_parameters(
+        self, params: DragonflyParameters, *, spawn_scope: bool = True
+    ) -> None:
+        # NOTE: body_length and head_scale do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.body_length = U(8.0, 10.0)
+            self.head_scale = U(1.6, 1.8)
+            self.genome = self.sample_geo_genome(
+                params,
+                body_length=self.body_length,
+                head_scale=self.head_scale,
+            )
+        if spawn_scope:
+            self._dragonfly_params = params
+        self._use_fixed_spawn_draws = spawn_scope
 
     @staticmethod
-    def sample_geo_genome():
+    def sample_geo_genome(
+        p: DragonflyParameters | None = None,
+        *,
+        body_length: float | None = None,
+        head_scale: float | None = None,
+    ):
         base_color = np.array((U(0.1, 0.6), 0.9, 0.8))
         base_color[1] += N(0.0, 0.05)
         base_color[2] += N(0.0, 0.05)
@@ -477,21 +534,21 @@ class DragonflyFactory(AssetFactory):
         body_color_rgba = hsv2rgba(body_color)
 
         return {
-            "Tail Length": U(2.5, 3.5),
+            "Tail Length": p.tail_length if p is not None else U(2.5, 3.5),
             "Tail Tip Z": U(-0.4, 0.3),
             "Tail Seed": U(-100, 100),
             "Tail Radius": U(0.7, 0.9),
-            "Body Length": U(8.0, 10.0),
+            "Body Length": body_length if body_length is not None else U(8.0, 10.0),
             "Body Seed": U(-100, 100),
             "Flap Freq": U(20, 50),
-            "Flap Mag": U(0.15, 0.25),
+            "Flap Mag": p.flap_mag if p is not None else U(0.15, 0.25),
             "Wing Yaw": U(0.43, 0.7),
-            "Wing Scale": U(0.9, 1.1),
-            "Leg Scale": U(0.9, 1.1),
+            "Wing Scale": p.wing_scale if p is not None else U(0.9, 1.1),
+            "Leg Scale": p.leg_scale if p is not None else U(0.9, 1.1),
             "Leg Openness 1": U(0.0, 1.0),
             "Leg Openness 2": U(0.0, 1.0),
             "Leg Openness 3": U(0.0, 1.0),
-            "Head Scale": U(1.6, 1.8),
+            "Head Scale": head_scale if head_scale is not None else U(1.6, 1.8),
             "Head Roll": U(-0.2, 0.2),
             "Head Pitch": U(-0.6, 0.6),
             "Base Color": base_color_rgba,
@@ -523,7 +580,10 @@ class DragonflyFactory(AssetFactory):
         )
         obj = bpy.context.active_object
 
-        phenome = self.genome.copy()
+        if self._use_fixed_spawn_draws:
+            phenome = self.genome.copy()
+        else:
+            phenome = self.sample_geo_genome(None).copy()
 
         surface.add_geomod(obj, geometry_dragonfly, apply=False, input_kwargs=phenome)
         obj.parent = placeholder

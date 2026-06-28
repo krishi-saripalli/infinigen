@@ -16,7 +16,12 @@ from numpy.random import uniform
 import infinigen.core.util.blender as butil
 from infinigen.assets.objects.elements.staircases.curved import (
     CurvedStaircaseFactory,
+    CurvedStaircaseParameters,
     _curved_legacy_init,
+)
+from infinigen.assets.objects.elements.staircases.straight import (
+    _apply_straight_switch_params,
+    _sample_straight_switch_params,
 )
 from infinigen.assets.utils.decorate import read_co, remove_vertices, write_attribute
 from infinigen.assets.utils.nodegroup import geo_radius
@@ -24,16 +29,13 @@ from infinigen.assets.utils.object import new_line, separate_loose
 from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
+    AssetParameters,
 )
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
-class SpiralStaircaseParameters(AssetParameters):
+class SpiralStaircaseParameters(CurvedStaircaseParameters):
     pass
 
 
@@ -61,7 +63,9 @@ class SpiralStaircaseFactory(CurvedStaircaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> SpiralStaircaseParameters:
-        return SpiralStaircaseParameters(seed=seed)
+        return SpiralStaircaseParameters(
+            seed=seed, **_sample_straight_switch_params(seed)
+        )
 
     def apply_parameters(
         self, params: SpiralStaircaseParameters, *, spawn_scope: bool = True
@@ -73,6 +77,11 @@ class SpiralStaircaseFactory(CurvedStaircaseFactory):
                 self.coarse,
                 constants=self._init_constants,
             )
+        _apply_straight_switch_params(self, params)
+        # NOTE: cap bevel width/segments on the handrail are below detection, no within-pair strip diff; sampled on self, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.handrail_cap_width_ratio = uniform(0.2, 0.5)
+            self.handrail_cap_segments = int(np.random.randint(4, 7))
         self._use_fixed_spawn_draws = spawn_scope
 
     def build_size_config(self):

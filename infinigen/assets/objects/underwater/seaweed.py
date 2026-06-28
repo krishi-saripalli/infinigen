@@ -9,7 +9,8 @@
 import bpy
 import numpy as np
 from numpy.random import uniform
-from typing import Any, ClassVar
+from pydantic import Field
+from typing import Annotated, Any, ClassVar
 
 import infinigen.core.util.blender as butil
 from infinigen.assets.objects.creatures.util.animation.driver_repeated import (
@@ -24,13 +25,7 @@ from infinigen.core import surface
 from infinigen.core.nodes.node_utils import build_color_ramp
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import (
-    AssetParameters,
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
-)
+from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.color import hsv2rgba
 from infinigen.core.util.math import FixedSeed
@@ -50,8 +45,21 @@ def _seaweed_legacy_init(inst: Any, factory_seed: int, coarse: bool = False) -> 
         inst.freq = 1 / log_uniform(200, 500)
 
 
-class SeaweedParameters(LegacyBridgeParameters):
-    pass
+class SeaweedParameters(AssetParameters):
+    base_hue: Annotated[
+        float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": False})
+    ]
+    growth_z: Annotated[float, Field(ge=3.0, le=6.0, json_schema_extra={"editable": True})]
+    inhibit_shell: Annotated[
+        float, Field(ge=0.6, le=0.8, json_schema_extra={"editable": True})
+    ]
+    fac_noise: Annotated[float, Field(ge=1.5, le=2.5, json_schema_extra={"editable": True})]
+    repulsion_radius: Annotated[
+        float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": True})
+    ]
+    height_scale: Annotated[
+        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})
+    ]
 
 
 class SeaweedFactory(ParameterizedAssetFactory, AssetFactory):
@@ -62,25 +70,47 @@ class SeaweedFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> SeaweedParameters:
-        return legacy_init_to_parameters(
-            SeaweedParameters,
-            SeaweedFactory,
-            seed,
-            self.coarse,
-            init_fn=_seaweed_legacy_init,
+        hue_cluster = uniform(0, 1) < 0.5
+        base_hue = uniform(0.0, 0.1) if hue_cluster else uniform(0.3, 0.4)
+        return SeaweedParameters(
+            seed=seed,
+            base_hue=base_hue,
+            growth_z=uniform(3.0, 6.0),
+            inhibit_shell=uniform(0.6, 0.8),
+            fac_noise=uniform(1.5, 2.5),
+            repulsion_radius=log_uniform(1.0, 1.5),
+            height_scale=uniform(1.5, 2.0),
         )
 
     def apply_parameters(
         self, params: SeaweedParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self.base_hue = params.base_hue
+        self.material = surface.shaderfunc_to_material(
+            self.shader_seaweed, self.base_hue
+        )
+        with FixedSeed(params.seed):
+            self.freq = 1 / log_uniform(200, 500)
+        self.growth_z = params.growth_z
+        self.inhibit_shell = params.inhibit_shell
+        self.fac_noise = params.fac_noise
+        self.repulsion_radius = params.repulsion_radius
+        self.height_scale = params.height_scale
+        self._use_fixed_spawn_draws = spawn_scope
+
 
     def create_asset(self, face_size=0.01, **params):
-        growth_vec = 0, 0, uniform(3.0, 6.0)
-        inhibit_shell = uniform(0.6, 0.8)
+        growth_vec = 0, 0, self.growth_z if self._use_fixed_spawn_draws else uniform(3.0, 6.0)
+        inhibit_shell = (
+            self.inhibit_shell if self._use_fixed_spawn_draws else uniform(0.6, 0.8)
+        )
         max_polygons = int(log_uniform(2e3, 1e4))
-        fac_noise = uniform(1.5, 2.5)
-        repulsion_radius = log_uniform(1.0, 1.5)
+        fac_noise = self.fac_noise if self._use_fixed_spawn_draws else uniform(1.5, 2.5)
+        repulsion_radius = (
+            self.repulsion_radius
+            if self._use_fixed_spawn_draws
+            else log_uniform(1.0, 1.5)
+        )
         obj = self.differential_growth_make(
             fac_noise=fac_noise,
             inhibit_shell=inhibit_shell,
@@ -91,7 +121,9 @@ class SeaweedFactory(ParameterizedAssetFactory, AssetFactory):
         )
 
         obj.scale = [2 / max(obj.dimensions)] * 3
-        obj.scale[-1] *= uniform(1.5, 2)
+        obj.scale[-1] *= (
+            self.height_scale if self._use_fixed_spawn_draws else uniform(1.5, 2)
+        )
         obj.location[-1] -= 0.02
         butil.apply_transform(obj, loc=True)
         f_scale = make_circular_interp(2, 5, 5, log_uniform)
@@ -102,7 +134,7 @@ class SeaweedFactory(ParameterizedAssetFactory, AssetFactory):
         subsurface2face_size(obj, face_size / 2)
         butil.modify_mesh(obj, "TRIANGULATE")
         butil.modify_mesh(obj, "SMOOTH", factor=uniform(-0.8, 0.8))
-        texture_type = np.random.choice(["STUCCI", "MARBLE"])
+        texture_type = str(np.random.choice(["STUCCI", "MARBLE"]))
         texture = bpy.data.textures.new(name="seaweed", type=texture_type)
         texture.noise_scale = log_uniform(0.05, 0.2)
         butil.modify_mesh(

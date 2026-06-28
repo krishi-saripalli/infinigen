@@ -37,31 +37,15 @@ from infinigen.core.surface import write_attr_data
 from infinigen.core.tagging import PREFIX
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
 class RackParameters(AssetParameters):
-    depth: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
-    width: Annotated[float, Field(ge=4.0, le=5.0, json_schema_extra={"editable": True})]
-    height: Annotated[float, Field(ge=1.6, le=1.8, json_schema_extra={"editable": True})]
+    depth: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": False})]
+    width: Annotated[float, Field(ge=4.0, le=5.0, json_schema_extra={"editable": False})]
+    height: Annotated[float, Field(ge=1.6, le=1.8, json_schema_extra={"editable": False})]
     steps: Annotated[int, Field(ge=3, le=5, json_schema_extra={"editable": True})]
-    thickness: Annotated[float, Field(ge=0.06, le=0.08, json_schema_extra={"editable": True})]
-    hole_radius_ratio: Annotated[
-        float, Field(ge=0.5, le=0.6, json_schema_extra={"editable": True})
-    ]
-    support_angle: Annotated[
-        float, Field(ge=0.523599, le=0.785398, json_schema_extra={"editable": True})
-    ]
-    is_support_round_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
-    frame_height_ratio: Annotated[
-        float, Field(ge=3.0, le=4.0, json_schema_extra={"editable": True})
-    ]
-    frame_count: Annotated[int, Field(ge=20, le=29, json_schema_extra={"editable": True})]
-    margin: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": True})] = (
-        0.4
-    )
 
 
 class RackFactory(ParameterizedAssetFactory, AssetFactory):
@@ -72,7 +56,6 @@ class RackFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> RackParameters:
-        thickness = uniform(0.06, 0.08)
         metal_surface = weighted_sample(material_assignments.metals)()
         self._stand_surface = metal_surface
         self._support_surface = metal_surface
@@ -83,30 +66,27 @@ class RackFactory(ParameterizedAssetFactory, AssetFactory):
             width=uniform(4.0, 5.0),
             height=uniform(1.6, 1.8),
             steps=int(np.random.randint(3, 6)),
-            thickness=thickness,
-            hole_radius_ratio=uniform(0.5, 0.6),
-            support_angle=uniform(np.pi / 6, np.pi / 4),
-            is_support_round_draw=uniform(),
-            frame_height_ratio=uniform(3, 4),
-            frame_count=int(np.random.randint(20, 30)),
         )
-
-    def _sample_spawn_parameters(
-        self, params: RackParameters, seed: int, i: int
-    ) -> RackParameters:
-        return params.model_copy(update={"margin": uniform(0.3, 0.5)})
 
     def apply_parameters(self, params: RackParameters, *, spawn_scope: bool = True) -> None:
         self.depth = params.depth
+        # NOTE: width drives pallet X placement with alternating margin branch per shelf level.
         self.width = params.width
         self.height = params.height
         self.steps = params.steps
-        self.thickness = params.thickness
-        self.hole_radius = params.thickness / 2 * params.hole_radius_ratio
-        self.support_angle = params.support_angle
-        self.is_support_round = params.is_support_round_draw < 0.5
-        self.frame_height = params.thickness * params.frame_height_ratio
-        self.frame_count = params.frame_count
+        # NOTE: thickness sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.thickness = uniform(0.06, 0.08)
+        # NOTE: hole_radius_ratio, support_angle, is_support_round_draw, frame_height_ratio, frame_count sampled on self from seed; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.hole_radius_ratio = uniform(0.5, 0.6)
+            self.support_angle = uniform(np.pi / 6, np.pi / 4)
+            self.is_support_round_draw = uniform()
+            self.frame_height_ratio = uniform(3, 4)
+            self.frame_count = int(np.random.randint(20, 30))
+        self.hole_radius = self.thickness / 2 * self.hole_radius_ratio
+        self.is_support_round = self.is_support_round_draw < 0.5
+        self.frame_height = self.thickness * self.frame_height_ratio
         if not hasattr(self, "_stand_surface"):
             metal_surface = weighted_sample(material_assignments.metals)()
             self._stand_surface = metal_surface
@@ -117,9 +97,10 @@ class RackFactory(ParameterizedAssetFactory, AssetFactory):
         self.frame_surface = self._frame_surface
         self.pallet_factory = PalletFactory(self.factory_seed)
         self.margin_range = 0.3, 0.5
+        # NOTE: margin resampled in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.margin = uniform(0.3, 0.5)
         self._use_fixed_spawn_draws = spawn_scope
-        if spawn_scope:
-            self.margin = params.margin
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:
         bbox = new_bbox(
@@ -265,6 +246,7 @@ class RackFactory(ParameterizedAssetFactory, AssetFactory):
 
         for o in frames:
             write_attribute(o, 1, "frame", "FACE")
+            butil.apply_modifiers(o)
         return frames
 
     def finalize_assets(self, assets):

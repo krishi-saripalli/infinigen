@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.objects.shelves.doors import CabinetDoorBaseFactory
 from infinigen.assets.objects.shelves.large_shelf import LargeShelfBaseFactory
@@ -19,10 +20,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
@@ -309,8 +307,13 @@ class SingleCabinetBaseFactory(AssetFactory):
         return obj
 
 
-class SingleCabinetParameters(LegacyBridgeParameters):
-    pass
+class SingleCabinetParameters(AssetParameters):
+    depth: Annotated[float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": False})]
+    width: Annotated[float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})]
+    height: Annotated[float, Field(ge=0.9, le=1.8, json_schema_extra={"editable": True})]
+    bottom_board_height: Annotated[
+        float, Field(ge=0.06, le=0.10, json_schema_extra={"editable": False})
+    ]
 
 
 def _single_cabinet_legacy_init(inst: SingleCabinetFactory, seed: int, coarse: bool) -> None:
@@ -329,21 +332,86 @@ class SingleCabinetFactory(ParameterizedAssetFactory, SingleCabinetBaseFactory):
         AssetFactory.__init__(self, factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
+    def _apply_geometry_parameters(self, params: SingleCabinetParameters) -> None:
+        depth, width, height = params.depth, params.width, params.height
+        self.dims = (depth, width, height)
+        num_h = max(int((height - params.bottom_board_height) / 0.3), 1)
+        self.shelf_params = {
+            "Dimensions": (depth, width, height),
+            "bottom_board_height": params.bottom_board_height,
+            "shelf_depth": depth - 0.01,
+            "shelf_cell_height": [
+                (height - params.bottom_board_height) / num_h for _ in range(num_h)
+            ],
+            "shelf_cell_width": [width],
+            "side_board_thickness": self.side_board_thickness,
+        }
+
+    def get_door_params(self, i=0):
+        params = self.door_params.copy()
+        shelf_width = (
+            self.shelf_params["shelf_width"]
+            + self.shelf_params["side_board_thickness"] * 2
+        )
+        if params.get("door_width", None) is None:
+            if shelf_width < 0.55:
+                params["door_width"] = shelf_width
+                params["num_door"] = 1
+            else:
+                params["door_width"] = shelf_width / 2.0 - 0.0005
+                params["num_door"] = 2
+        if params.get("door_height", None) is None:
+            params["door_height"] = (
+                self.shelf_params["division_board_z_translation"][-1]
+                - self.shelf_params["division_board_z_translation"][0]
+                + self.shelf_params["division_board_thickness"]
+            )
+            if (
+                self._use_short_door
+                and len(self.shelf_params["division_board_z_translation"]) >= 2
+            ):
+                short_idx = min(
+                    3, len(self.shelf_params["division_board_z_translation"]) - 1
+                )
+                params["door_height"] = (
+                    self.shelf_params["division_board_z_translation"][short_idx]
+                    - self.shelf_params["division_board_z_translation"][0]
+                    + self.shelf_params["division_board_thickness"]
+                )
+        if params.get("frame_material", None) is None:
+            params["frame_material"] = self.mat_params["frame_material"]
+        return params
+
     def _sample_init_parameters(self, seed: int) -> SingleCabinetParameters:
-        return legacy_init_to_parameters(
-            SingleCabinetParameters,
-            SingleCabinetFactory,
-            seed,
-            self.coarse,
-            init_fn=_single_cabinet_legacy_init,
+        return SingleCabinetParameters(
+            seed=seed,
+            depth=uniform(0.25, 0.35),
+            width=uniform(0.3, 0.7),
+            height=uniform(0.9, 1.8),
+            bottom_board_height=0.083,
         )
 
     def apply_parameters(
         self, params: SingleCabinetParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            self.shelf_params = {}
+            self.door_params = {}
+            self.mat_params = {}
+            self.shelf_fac = LargeShelfBaseFactory(params.seed)
+            self.door_fac = CabinetDoorBaseFactory(params.seed)
+            # NOTE: side_board_thickness does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            self.side_board_thickness = uniform(0.015, 0.025)
+            self._apply_geometry_parameters(params)
+            # NOTE: use_short_door does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            self._use_short_door = bool(
+                np.random.choice([True, False], p=[0.5, 0.5])
+            )
+        self._use_fixed_spawn_draws = spawn_scope
 
     def sample_params(self):
+        if self.shelf_params:
+            return self.shelf_params
         params = dict()
         params["Dimensions"] = (
             uniform(0.25, 0.35),

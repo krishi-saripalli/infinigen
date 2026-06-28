@@ -12,24 +12,27 @@ from typing import ClassVar
 
 import bpy
 import numpy as np
+from numpy.random import uniform
 
 import infinigen.core.util.blender as butil
 from infinigen.assets.utils.decorate import read_co, write_attribute, write_co
 from infinigen.assets.utils.object import new_cube, new_line
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
+    AssetParameters,
 )
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
-from .straight import StraightStaircaseFactory
+from .straight import (
+    MirroredStaircaseParameters,
+    StraightStaircaseFactory,
+    _apply_straight_switch_params,
+    _sample_straight_switch_params,
+)
 
 
-class UShapedStaircaseParameters(AssetParameters):
+class UShapedStaircaseParameters(MirroredStaircaseParameters):
     pass
 
 
@@ -57,7 +60,9 @@ class UShapedStaircaseFactory(StraightStaircaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> UShapedStaircaseParameters:
-        return UShapedStaircaseParameters(seed=seed)
+        return UShapedStaircaseParameters(
+            seed=seed, **_sample_straight_switch_params(seed)
+        )
 
     def apply_parameters(
         self, params: UShapedStaircaseParameters, *, spawn_scope: bool = True
@@ -69,6 +74,10 @@ class UShapedStaircaseFactory(StraightStaircaseFactory):
                 self.coarse,
                 constants=self._init_constants,
             )
+        _apply_straight_switch_params(self, params)
+        with FixedSeed(params.seed):
+            self.handrail_cap_width_ratio = uniform(0.2, 0.5)
+            self.handrail_cap_segments = int(np.random.randint(4, 7))
         self._use_fixed_spawn_draws = spawn_scope
 
     def build_size_config(self):

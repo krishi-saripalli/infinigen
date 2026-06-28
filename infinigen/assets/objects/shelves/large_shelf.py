@@ -24,7 +24,10 @@ from infinigen.core import surface, tagging
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 
 
 @node_utils.to_nodegroup(
@@ -926,7 +929,7 @@ class LargeShelfBaseFactory(AssetFactory):
 
 class LargeShelfParameters(AssetParameters):
     dimension_depth: Annotated[
-        float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": True})
+        float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": False})
     ]
     dimension_width: Annotated[
         float, Field(ge=0.3, le=2.0, json_schema_extra={"editable": True})
@@ -934,6 +937,10 @@ class LargeShelfParameters(AssetParameters):
     dimension_height: Annotated[
         float, Field(ge=0.9, le=2.0, json_schema_extra={"editable": True})
     ]
+    # NOTE: only adds bottom board height when True (~20% of samples).
+    has_bottom_board: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
 
 
 class LargeShelfFactory(ParameterizedAssetFactory, LargeShelfBaseFactory):
@@ -949,6 +956,7 @@ class LargeShelfFactory(ParameterizedAssetFactory, LargeShelfBaseFactory):
             dimension_depth=uniform(0.25, 0.35),
             dimension_width=uniform(0.3, 2.0),
             dimension_height=uniform(0.9, 2.0),
+            has_bottom_board=bool(np.random.choice([True, False], p=[0.8, 0.2])),
         )
 
     def apply_parameters(
@@ -958,6 +966,7 @@ class LargeShelfFactory(ParameterizedAssetFactory, LargeShelfBaseFactory):
         self._dimension_depth = params.dimension_depth
         self._dimension_width = params.dimension_width
         self._dimension_height = params.dimension_height
+        self._has_bottom_board = params.has_bottom_board
         self._use_fixed_spawn_draws = spawn_scope
 
     def sample_params(self):
@@ -968,7 +977,7 @@ class LargeShelfFactory(ParameterizedAssetFactory, LargeShelfBaseFactory):
             self._dimension_height,
         )
 
-        params["bottom_board_height"] = 0.083
+        params["bottom_board_height"] = 0.083 if self._has_bottom_board else 0.0
         params["shelf_depth"] = params["Dimensions"][0] - 0.01
         num_h = int((params["Dimensions"][2] - 0.083) / 0.3)
         params["shelf_cell_height"] = [

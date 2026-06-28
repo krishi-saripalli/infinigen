@@ -24,18 +24,32 @@ from infinigen.assets.utils.draw import remesh_fill
 from infinigen.assets.utils.object import new_circle
 from infinigen.assets.utils.uv import wrap_top_bottom
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class PantsParameters(AssetParameters):
-    width: Annotated[float, Field(ge=0.45, le=0.55, json_schema_extra={"editable": True})]
+    width: Annotated[float, Field(ge=0.45, le=0.55, json_schema_extra={"editable": False})]
     size_extra: Annotated[float, Field(ge=0.0, le=0.05, json_schema_extra={"editable": True})]
     thickness: Annotated[
-        float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})
+        float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": False})
     ]
     neck_shrink: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
+    pants_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": ["underwear", "shorts", "pants"],
+            }
+        ),
+    ] = "pants"
 
 
 class PantsFactory(ParameterizedAssetFactory, AssetFactory):
@@ -58,7 +72,7 @@ class PantsFactory(ParameterizedAssetFactory, AssetFactory):
         width = log_uniform(0.45, 0.55)
         size_extra = uniform(0, 0.05)
         size = width / 2 + size_extra
-        pants_type = np.random.choice(["underwear", "shorts", "pants"])
+        pants_type = str(np.random.choice(["underwear", "shorts", "pants"]))
         surface_gen_class = weighted_sample(material_assignments.pants)
         surface_material_gen = surface_gen_class()
         surface = surface_material_gen()
@@ -74,26 +88,27 @@ class PantsFactory(ParameterizedAssetFactory, AssetFactory):
             size_extra=size_extra,
             thickness=log_uniform(0.02, 0.03),
             neck_shrink=uniform(0.1, 0.15),
+            pants_type=pants_type,
         )
 
     def apply_parameters(
         self, params: PantsParameters, *, spawn_scope: bool = True
     ) -> None:
-        if not hasattr(self, "_size"):
-            size = params.width / 2 + params.size_extra
-            self._size = size
-            self._pants_type = np.random.choice(["underwear", "shorts", "pants"])
-            self._length = self._sample_length(self._pants_type, size)
-            surface_gen_class = weighted_sample(material_assignments.pants)
-            surface_material_gen = surface_gen_class()
-            surface = surface_material_gen()
-            if surface == ArtFabric:
-                surface = surface(params.seed)
+        if not hasattr(self, "_surface"):
+            with FixedSeed(params.seed):
+                surface_gen_class = weighted_sample(material_assignments.pants)
+                surface_material_gen = surface_gen_class()
+                surface = surface_material_gen()
+                if surface == ArtFabric:
+                    surface = surface(params.seed)
             self._surface = surface
+        with FixedSeed(params.seed):
+            size = params.width / 2 + params.size_extra
+            length = self._sample_length(params.pants_type, size)
         self.width = params.width
-        self.size = self._size
-        self.type = self._pants_type
-        self.length = self._length
+        self.size = size
+        self.type = params.pants_type
+        self.length = length
         self.neck_shrink = params.neck_shrink
         self.thickness = params.thickness
         self.surface = self._surface

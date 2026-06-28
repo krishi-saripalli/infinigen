@@ -22,21 +22,19 @@ from infinigen.core.surface import write_attr_data
 from infinigen.core.tagging import PREFIX
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
+from infinigen.core.util.math import FixedSeed
 
 
 class PalletParameters(AssetParameters):
-    depth: Annotated[float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": True})]
-    width: Annotated[float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": True})]
-    thickness: Annotated[
-        float, Field(ge=0.01, le=0.015, json_schema_extra={"editable": True})
-    ]
+    depth: Annotated[float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": False})]
+    width: Annotated[float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": False})]
     tile_width: Annotated[
-        float, Field(ge=0.06, le=0.1, json_schema_extra={"editable": True})
+        float, Field(ge=0.06, le=0.1, json_schema_extra={"editable": False})
     ]
     tile_slackness: Annotated[
         float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})
     ]
-    height: Annotated[float, Field(ge=0.2, le=0.25, json_schema_extra={"editable": True})]
+    height: Annotated[float, Field(ge=0.2, le=0.25, json_schema_extra={"editable": False})]
 
 
 class PalletFactory(ParameterizedAssetFactory, AssetFactory):
@@ -52,7 +50,6 @@ class PalletFactory(ParameterizedAssetFactory, AssetFactory):
             seed=seed,
             depth=uniform(1.2, 1.4),
             width=uniform(1.2, 1.4),
-            thickness=uniform(0.01, 0.015),
             tile_width=uniform(0.06, 0.1),
             tile_slackness=uniform(1.5, 2),
             height=uniform(0.2, 0.25),
@@ -63,7 +60,9 @@ class PalletFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         self.depth = params.depth
         self.width = params.width
-        self.thickness = params.thickness
+        # NOTE: thickness sampled on self from seed; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.thickness = uniform(0.01, 0.015)
         self.tile_width = params.tile_width
         self.tile_slackness = params.tile_slackness
         self.height = params.height

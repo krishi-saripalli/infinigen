@@ -18,7 +18,6 @@ from infinigen.assets.utils.decorate import (
     read_co,
     read_normal,
     remove_faces,
-    select_faces,
     subdivide_edge_ring,
     write_attribute,
     write_co,
@@ -43,11 +42,24 @@ class BedFrameParameters(ChairParameters):
     ]
     leg_height: Annotated[float, Field(ge=0.2, le=0.6, json_schema_extra={"editable": True})]
     back_height: Annotated[float, Field(ge=0.5, le=1.3, json_schema_extra={"editable": True})]
+    has_arm_draw: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 1.0
+    arm_thickness: Annotated[
+        float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": False})
+    ]
+    arm_height: Annotated[
+        float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": False})
+    ]
+    arm_y: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})]
+    arm_z: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})]
     has_all_legs_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     leg_decor_wrapped_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     seat_subdivisions_x: Annotated[int, Field(ge=1, le=3, json_schema_extra={"editable": True})]
     seat_subdivisions_y: Annotated[
@@ -272,7 +284,14 @@ class BedFrameFactory(ChairFactory):
         match self.leg_decor_type:
             case "coiled":
                 self.divide(obj, self.dot_distance)
-                make_coiled(obj, self.dot_distance, self.dot_depth, self.dot_size)
+                smooth_draw = (
+                    self.divide_z_scale_draw
+                    if self._use_fixed_spawn_draws
+                    else uniform(0.5, 1.0)
+                )
+                make_coiled(
+                    obj, self.dot_distance, self.dot_depth, self.dot_size, smooth_draw
+                )
             case "pad":
                 self.divide(obj, self.panel_distance)
                 with butil.ViewportMode(obj, "EDIT"):
@@ -280,7 +299,6 @@ class BedFrameFactory(ChairFactory):
                     bpy.ops.mesh.inset(
                         thickness=self.panel_margin,
                         depth=self.panel_margin,
-                        use_individual=True,
                     )
                 butil.modify_mesh(obj, "BEVEL", segments=4)
         write_attribute(obj, 1, "panel", "FACE")
@@ -304,7 +322,14 @@ class BedFrameFactory(ChairFactory):
             case "coiled":
                 obj = self.make_back(backs)
                 self.divide(obj, self.dot_distance)
-                make_coiled(obj, self.dot_distance, self.dot_depth, self.dot_size)
+                smooth_draw = (
+                    self.divide_z_scale_draw
+                    if self._use_fixed_spawn_draws
+                    else uniform(0.5, 1.0)
+                )
+                make_coiled(
+                    obj, self.dot_distance, self.dot_depth, self.dot_size, smooth_draw
+                )
                 obj.scale = (1 - 1e-3,) * 3
                 write_attribute(obj, 1, "panel", "FACE")
                 with butil.ViewportMode(decors[0], "EDIT"):
@@ -318,13 +343,6 @@ class BedFrameFactory(ChairFactory):
             case "pad":
                 obj = self.make_back(backs)
                 self.divide(obj, self.panel_distance)
-                with butil.ViewportMode(obj, "EDIT"):
-                    select_faces(obj, np.abs(read_normal(obj)[:, 1]) > 0.5)
-                    bpy.ops.mesh.inset(
-                        thickness=self.panel_margin,
-                        depth=self.panel_margin,
-                        use_individual=True,
-                    )
                 butil.modify_mesh(obj, "BEVEL", segments=4)
                 write_attribute(obj, 1, "panel", "FACE")
                 obj.scale = (1 - 1e-3,) * 3

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 # Copyright (C) 2023, Princeton University.
 # This source code is licensed under the BSD 3-Clause license found in the LICENSE file in the root directory of this source tree.
-
 # Authors: Yiming Zuo
+from typing import Annotated, ClassVar
 
 import bpy
 from numpy.random import choice, randint, uniform
+from pydantic import Field
 
 import infinigen.core.util.blender as butil
 from infinigen.assets.composition import material_assignments
@@ -17,33 +18,32 @@ from infinigen.assets.objects.table_decorations.utils import (
 from infinigen.core import surface
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
-from typing import Any, ClassVar
+from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
-from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
+class VaseFactoryParameters(AssetParameters):
+    height: Annotated[float, Field(ge=0.17, le=0.5, json_schema_extra={"editable": True})]
+    diameter: Annotated[float, Field(ge=0.05, le=0.3, json_schema_extra={"editable": True})]
+    top_scale: Annotated[float, Field(ge=0.16, le=0.96, json_schema_extra={"editable": False})]
+    neck_position: Annotated[
+        float, Field(ge=0.55, le=0.95, json_schema_extra={"editable": True})
+    ]
+    neck_scale: Annotated[float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})]
+    shoulder_position: Annotated[
+        float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})
+    ]
+    shoulder_thickness: Annotated[
+        float, Field(ge=0.1, le=0.25, json_schema_extra={"editable": False})
+    ]
+    foot_scale: Annotated[float, Field(ge=0.4, le=0.6, json_schema_extra={"editable": False})]
+    foot_height: Annotated[float, Field(ge=0.01, le=0.1, json_schema_extra={"editable": False})]
 
-class VaseFactoryParameters(LegacyBridgeParameters):
-    pass
-
-
-def _vase_legacy_init(inst, seed, coarse, dimensions=None):
-    if dimensions is None:
-        z = uniform(0.17, 0.5)
-        x = z * uniform(0.3, 0.6)
-        dimensions = (x, x, z)
-    inst.dimensions = dimensions
-    inst.params = VaseFactory.sample_parameters(dimensions)
-    inst.material_params, inst.scratch, inst.edge_wear = inst.get_material_params()
-    inst.params.update(inst.material_params)
 
 
 class VaseFactory(ParameterizedAssetFactory, AssetFactory):
@@ -54,20 +54,77 @@ class VaseFactory(ParameterizedAssetFactory, AssetFactory):
         super(VaseFactory, self).__init__(factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
+    def _sample_material_state(self, seed: int) -> None:
+        with FixedSeed(seed):
+            params = {
+                "Material": weighted_sample(
+                    material_assignments.marble + material_assignments.tableware
+                )(),
+            }
+            self._material_params = {k: v() for k, v in params.items()}
+            scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+            scratch, edge_wear = material_assignments.wear_tear
+            self._scratch = None if uniform() > scratch_prob else scratch()
+            self._edge_wear = None if uniform() > edge_wear_prob else edge_wear()
+
     def _sample_init_parameters(self, seed: int) -> VaseFactoryParameters:
-        return legacy_init_to_parameters(
-            VaseFactoryParameters,
-            VaseFactory,
-            seed,
-            self.coarse,
-            self._dimensions,
-            init_fn=_vase_legacy_init,
+        if self._dimensions is None:
+            z = uniform(0.17, 0.5)
+            x = z * uniform(0.3, 0.6)
+        else:
+            x, _, z = self._dimensions
+        neck_scale = uniform(0.2, 0.8)
+        self._sample_material_state(seed)
+        return VaseFactoryParameters(
+            seed=seed,
+            height=z,
+            diameter=x,
+            top_scale=neck_scale * uniform(0.8, 1.2),
+            neck_position=0.5 * neck_scale + 0.5 + uniform(-0.05, 0.05),
+            neck_scale=neck_scale,
+            shoulder_position=uniform(0.3, 0.7),
+            shoulder_thickness=uniform(0.1, 0.25),
+            foot_scale=uniform(0.4, 0.6),
+            foot_height=uniform(0.01, 0.1),
         )
+
+    def _sample_spawn_parameters(
+        self, params: VaseFactoryParameters, seed: int, i: int
+    ) -> VaseFactoryParameters:
+        return params
 
     def apply_parameters(
         self, params: VaseFactoryParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self._sample_material_state(params.seed)
+        x = params.diameter
+        z = params.height
+        self.dimensions = (x, x, z)
+        # NOTE: neck_mid_position and profile_star_points do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.neck_mid_position = uniform(0.7, 0.95)
+            self.profile_star_points = int(randint(16, 33))
+        # NOTE: top_scale, shoulder_thickness, foot_scale, and foot_height effects vary with neck/foot profile branches; excluded from quartet sampling.
+        self.params = {
+            "Profile Inner Radius": 1.0,
+            "Profile Star Points": self.profile_star_points,
+            "U_resolution": 64,
+            "V_resolution": 64,
+            "Height": z,
+            "Diameter": x,
+            "Top Scale": params.top_scale,
+            "Neck Mid Position": self.neck_mid_position,
+            "Neck Position": params.neck_position,
+            "Neck Scale": params.neck_scale,
+            "Shoulder Position": params.shoulder_position,
+            "Shoulder Thickness": params.shoulder_thickness,
+            "Foot Scale": params.foot_scale,
+            "Foot Height": params.foot_height,
+            **self._material_params,
+        }
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
+        self._use_fixed_spawn_draws = spawn_scope
 
     def get_material_params(self):
         params = {

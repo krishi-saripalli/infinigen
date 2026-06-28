@@ -16,13 +16,15 @@ from infinigen.assets.utils.object import new_cube, new_line
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
+from infinigen.core.util.math import FixedSeed
 
-from .straight import StraightStaircaseFactory
+from .straight import (
+    MirroredStaircaseParameters,
+    StraightStaircaseFactory,
+    _apply_straight_switch_params,
+    _sample_straight_switch_params,
+)
 
 
 def _lshaped_legacy_init(
@@ -37,7 +39,7 @@ def _lshaped_legacy_init(
     inst.is_rail_circular = True
 
 
-class LShapedStaircaseParameters(LegacyBridgeParameters):
+class LShapedStaircaseParameters(MirroredStaircaseParameters):
     pass
 
 
@@ -50,19 +52,20 @@ class LShapedStaircaseFactory(StraightStaircaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> LShapedStaircaseParameters:
-        return legacy_init_to_parameters(
-            LShapedStaircaseParameters,
-            LShapedStaircaseFactory,
-            seed,
-            self.coarse,
-            self._constants_arg,
-            init_fn=_lshaped_legacy_init,
+        return LShapedStaircaseParameters(
+            seed=seed, **_sample_straight_switch_params(seed)
         )
 
     def apply_parameters(
         self, params: LShapedStaircaseParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _lshaped_legacy_init(self, params.seed, self.coarse, self._constants_arg)
+        _apply_straight_switch_params(self, params)
+        with FixedSeed(params.seed):
+            self.handrail_cap_width_ratio = uniform(0.2, 0.5)
+            self.handrail_cap_segments = int(np.random.randint(4, 7))
+        self._use_fixed_spawn_draws = spawn_scope
 
     def make_line(self, alpha):
         obj = new_line(self.n + 2)

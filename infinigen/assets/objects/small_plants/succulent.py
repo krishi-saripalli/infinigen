@@ -587,35 +587,7 @@ def geometry_succulent_nodes(nw: NodeWrangler, **kwargs):
 
 
 class SucculentParameters(AssetParameters):
-    succulent_506: Annotated[
-        float, Field(ge=-3.0, le=3.0, json_schema_extra={"editable": True})
-    ] = 0.0
-    succulent_509: Annotated[
-        float, Field(ge=0.4, le=0.9, json_schema_extra={"editable": True})
-    ] = 0.65
-    succulent_600: Annotated[
-        float, Field(ge=0.09, le=0.11, json_schema_extra={"editable": True})
-    ] = 0.1
-    contour_bit: Annotated[int, Field(ge=0, le=2, json_schema_extra={"editable": True})] = (
-        0
-    )
-    cross_x: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})] = (
-        0.45
-    )
-    cross_y_bottom: Annotated[
-        float, Field(ge=0.08, le=0.25, json_schema_extra={"editable": True})
-    ] = 0.16
-    cross_y_top: Annotated[
-        float, Field(ge=-0.04, le=0.02, json_schema_extra={"editable": True})
-    ] = -0.01
-    diff_petal_scale: Annotated[
-        float, Field(ge=0.5, le=0.9, json_schema_extra={"editable": True})
-    ] = 0.7
-    init_petal_num: Annotated[int, Field(ge=5, le=14, json_schema_extra={"editable": True})] = (
-        8
-    )
-    material_bit: Annotated[int, Field(ge=0, le=2, json_schema_extra={"editable": True})] = 0
-    num_bases: Annotated[int, Field(ge=5, le=7, json_schema_extra={"editable": True})] = 6
+    pass
 
 
 class SucculentFactory(ParameterizedAssetFactory, AssetFactory):
@@ -634,12 +606,7 @@ class SucculentFactory(ParameterizedAssetFactory, AssetFactory):
         self, params: SucculentParameters, seed: int, i: int
     ) -> SucculentParameters:
         self._spawn_geom = self._sample_geometry(self._mode)
-        editable = {
-            k: v
-            for k, v in self._spawn_geom.items()
-            if k in SucculentParameters.model_fields
-        }
-        return params.model_copy(update=editable)
+        return params
 
     def apply_parameters(
         self, params: SucculentParameters, *, spawn_scope: bool = True
@@ -654,6 +621,8 @@ class SucculentFactory(ParameterizedAssetFactory, AssetFactory):
 
     @staticmethod
     def _sample_geometry(mode: str) -> dict[str, Any]:
+        # NOTE: contour_bit, cross_x, cross_y_bottom, cross_y_top, diff_petal_scale, init_petal_num, num_bases, succulent_506, succulent_509, succulent_600 sampled here; excluded from quartet sampling (weak/unreliable geometry effect).
+        # NOTE: material_bit is sampled in _sample_geometry; excluded from quartet sampling (material-only, not exported geometry).
         if mode == "thin_petal":
             cross_y_bottom = uniform(0.08, 0.25)
             cross_y_top = uniform(-0.04, 0.02)
@@ -727,7 +696,6 @@ class SucculentFactory(ParameterizedAssetFactory, AssetFactory):
             "cross_y_top": cross_y_top,
             "diff_petal_scale": diff_petal_scale,
             "init_petal_num": init_petal_num,
-            "material_bit": material_bit,
             "num_bases": num_bases,
             "base_radius": base_radius,
             "petal_x_R": petal_x_R,

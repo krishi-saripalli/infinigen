@@ -2,10 +2,16 @@
 # This source code is licensed under the BSD 3-Clause license found in the LICENSE file in the root directory of this source tree.
 
 # Authors: Lingjie Mei
+
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bmesh
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.utils.decorate import (
@@ -25,54 +31,101 @@ from infinigen.assets.utils.object import (
 from infinigen.core import surface
 from infinigen.core.constraints.constraint_language.constants import RoomConstants
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
-class PillarFactory(AssetFactory):
-    def __init__(self, factory_seed, coarse=False, constants=None):
-        super().__init__(factory_seed, coarse)
-        with FixedSeed(factory_seed):
+class PillarParameters(AssetParameters):
+    detail_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["fluting", "reeding"],
+            }
+        ),
+    ] = "fluting"
+
+
+def _pillar_legacy_init(
+    inst: AssetFactory,
+    seed: int,
+    coarse: bool,
+    constants: RoomConstants | None,
+) -> None:
+        with FixedSeed(seed):
             if constants is None:
                 constants = RoomConstants()
-            self.height = constants.wall_height - constants.wall_thickness
-            self.n = np.random.randint(5, 10)
-            self.radius = uniform(0.08, 0.12)
-            self.outer_radius = self.radius * uniform(1.3, 1.5)
-            self.lower_offset = uniform(0.05, 0.15)
-            self.upper_offset = uniform(0.05, 0.15)
-            self.detail_type = np.random.choice(["fluting", "reeding"])
-            width = np.pi / 2 / self.n
-            self.inset_width = width * log_uniform(0.1, 0.2)
-            self.inset_width_ = (width - self.inset_width * 2) * uniform(-0.1, 0.3)
-            self.inset_depth = uniform(0.1, 0.15)
-            self.inset_scale = uniform(0.05, 0.1)
-            self.outer_n = np.random.choice([1, 2, self.n])
-            self.m = np.random.randint(12, 20)
-            z_profile = uniform(1, 3, self.m)
-            self.z_profile = np.array(
-                [0, *(np.cumsum(z_profile) / np.sum(z_profile))[:-1]]
+            inst.height = constants.wall_height - constants.wall_thickness
+            # NOTE: n, lower_offset, upper_offset do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            inst.n = int(np.random.randint(5, 10))
+            # NOTE: radius, outer_radius_ratio, and inset_depth do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            inst.radius = uniform(0.08, 0.12)
+            inst.outer_radius = inst.radius * uniform(1.3, 1.5)
+            inst.lower_offset = uniform(0.05, 0.15)
+            inst.upper_offset = uniform(0.05, 0.15)
+            inst.detail_type = np.random.choice(["fluting", "reeding"])
+        width = np.pi / 2 / inst.n
+        inst.inset_width = width * log_uniform(0.1, 0.2)
+        inst.inset_width_ = (width - inst.inset_width * 2) * uniform(-0.1, 0.3)
+        inst.inset_depth = uniform(0.1, 0.15)
+        inst.inset_scale = uniform(0.05, 0.1)
+        inst.outer_n = np.random.choice([1, 2, inst.n])
+        inst.m = np.random.randint(12, 20)
+        z_profile = uniform(1, 3, inst.m)
+        inst.z_profile = np.array(
+            [0, *(np.cumsum(z_profile) / np.sum(z_profile))[:-1]]
+        )
+        alpha = uniform(0.7, 0.85)
+        r_profile = uniform(0, 1, inst.m + 3)
+        r_profile[[0, 1]] = 1
+        r_profile[[-2, -1]] = 0
+        r_profile = np.convolve(
+            r_profile, np.array([(1 - alpha) / 2, alpha, (1 - alpha) / 2])
+        )
+        inst.r_profile = (
+            np.array([1, *r_profile[2:-2]]) * (inst.outer_radius - inst.radius)
+            + inst.radius
+        )
+        inst.n_profile = np.where(
+            np.arange(inst.m) < np.random.randint(2, inst.m - 1),
+            inst.outer_n,
+            inst.n,
+        )
+        inst.inset_profile = uniform(0, 1, inst.m) < 0.3
+        inst.surface = weighted_sample(material_assignments.marble)()
+
+
+class PillarFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = PillarParameters
+
+    def __init__(self, factory_seed, coarse=False, constants=None):
+        self._constants_arg = constants
+        super().__init__(factory_seed, coarse)
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> PillarParameters:
+        with FixedSeed(seed):
+            return PillarParameters(
+                seed=seed,
+                detail_type="fluting",
             )
-            alpha = uniform(0.7, 0.85)
-            r_profile = uniform(0, 1, self.m + 3)
-            r_profile[[0, 1]] = 1
-            r_profile[[-2, -1]] = 0
-            r_profile = np.convolve(
-                r_profile, np.array([(1 - alpha) / 2, alpha, (1 - alpha) / 2])
-            )
-            self.r_profile = (
-                np.array([1, *r_profile[2:-2]]) * (self.outer_radius - self.radius)
-                + self.radius
-            )
-            self.n_profile = np.where(
-                np.arange(self.m) < np.random.randint(2, self.m - 1),
-                self.outer_n,
-                self.n,
-            )
-            self.inset_profile = uniform(0, 1, self.m) < 0.3
-            self.surface = weighted_sample(material_assignments.marble)()
+
+    def apply_parameters(
+        self, params: PillarParameters, *, spawn_scope: bool = True
+    ) -> None:
+        _pillar_legacy_init(
+            self, params.seed, self.coarse, self._constants_arg
+        )
+        self.detail_type = params.detail_type
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:
         obj = new_cylinder(vertices=4 * self.n)

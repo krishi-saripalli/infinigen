@@ -4,58 +4,82 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bmesh
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
+from infinigen.assets.objects.tableware.base import (
+    TablewareFactory,
+    apply_tableware_from_draws,
+    sample_tableware_base,
+)
 from infinigen.assets.utils.decorate import subsurf, write_co
 from infinigen.assets.utils.object import new_grid
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
-from .base import TablewareFactory
 
-
-def _knife_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    TablewareFactory.__init__(inst, seed, coarse)
-    inst.x_length = log_uniform(0.4, 0.7)
-    inst.has_guard = uniform(0, 1) < 0.7
-    if inst.has_guard:
-        inst.y_length = log_uniform(0.1, 0.5)
-        inst.y_guard = inst.y_length * log_uniform(0.2, 0.4)
-    else:
-        inst.y_length = log_uniform(0.1, 0.2)
-        inst.y_guard = inst.y_length * log_uniform(0.3, 0.5)
-    inst.x_guard = uniform(0, 0.2)
-    inst.has_tip = uniform(0, 1) < 0.7
-    inst.thickness = log_uniform(0.02, 0.03)
-    y_off_rand = uniform(0, 1)
-    inst.y_offset = (
-        0.2
-        if y_off_rand < 1 / 8
-        else 0.5
-        if y_off_rand < 1 / 4
-        else uniform(0.2, 0.6)
-    )
-    inst.guard_type = "round" if uniform(0, 1) < 0.6 else "double"
-    inst.guard_depth = log_uniform(0.2, 1.0) * inst.thickness
-    inst.scale = log_uniform(0.2, 0.3)
-
-
-class KnifeParameters(LegacyBridgeParameters):
-    pass
-
+class KnifeParameters(AssetParameters):
+    x_length: Annotated[float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})]
+    y_length: Annotated[float, Field(ge=0.1, le=0.5, json_schema_extra={"editable": True})]
+    thickness: Annotated[float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": False})]
+    lower_thresh: Annotated[
+        float,
+        Field(
+            ge=0.5,
+            le=0.8,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    scratch_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    edge_wear_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    has_guard: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    # NOTE: round vs double guard geometry branch.
+    guard_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["round", "double"],
+            }
+        ),
+    ] = "round"
+    x_anchor_1: Annotated[
+        float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})
+    ] = 0.65
+    x_anchor_2: Annotated[
+        float, Field(ge=0.3, le=0.4, json_schema_extra={"editable": True})
+    ] = 0.35
+    y_anchor_1_mult: Annotated[
+        float, Field(ge=0.75, le=0.95, json_schema_extra={"editable": True})
+    ] = 0.85
 
 class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
     parameters_model: ClassVar[type[AssetParameters]] = KnifeParameters
@@ -65,26 +89,96 @@ class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
         AssetFactory.__init__(self, factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _apply_knife_branches(self) -> None:
+        y_off = self.y_off_rand
+        if y_off < 1 / 8:
+            self.y_offset = 0.2
+        elif y_off < 1 / 4:
+            self.y_offset = 0.5
+        else:
+            self.y_offset = 0.2 + (y_off - 0.25) / 0.75 * 0.4
+
     def _sample_init_parameters(self, seed: int) -> KnifeParameters:
-        return legacy_init_to_parameters(
-            KnifeParameters,
-            KnifeFactory,
-            seed,
-            self.coarse,
-            init_fn=_knife_legacy_init,
+        base = sample_tableware_base(seed)
+        thickness = log_uniform(0.02, 0.03)
+        has_guard = True
+        y_length = log_uniform(0.1, 0.5)
+        return KnifeParameters(
+            seed=seed,
+            x_length=log_uniform(0.4, 0.7),
+            y_length=y_length,
+            thickness=thickness,
+            lower_thresh=base["lower_thresh"],
+            scratch_draw=base["scratch_draw"],
+            edge_wear_draw=base["edge_wear_draw"],
+            has_guard=has_guard,
+            guard_type="round" if uniform(0, 1) < 0.6 else "double",
+            x_anchor_1=uniform(0.5, 0.8),
+            x_anchor_2=uniform(0.3, 0.4),
+            y_anchor_1_mult=log_uniform(0.75, 0.95),
+        )
+
+    def _sample_spawn_parameters(
+        self, params: KnifeParameters, seed: int, i: int
+    ) -> KnifeParameters:
+        return params.model_copy(
+            update={
+                "x_anchor_1": uniform(0.5, 0.8),
+                "x_anchor_2": uniform(0.3, 0.4),
+                "y_anchor_1_mult": log_uniform(0.75, 0.95),
+            }
         )
 
     def apply_parameters(
         self, params: KnifeParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.scale = log_uniform(0.2, 0.3)
+            # NOTE: guard_depth_mult, y_guard_ratio, and y_off_rand do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            guard_depth_mult = log_uniform(0.2, 1.0)
+            y_guard_ratio = log_uniform(0.2, 0.4)
+            self.y_off_rand = uniform(0, 1)
+        apply_tableware_from_draws(
+            self,
+            seed=params.seed,
+            lower_thresh=params.lower_thresh,
+            scale=self.scale,
+            scratch_draw=params.scratch_draw,
+            edge_wear_draw=params.edge_wear_draw,
+            guard_depth=guard_depth_mult * params.thickness,
+        )
+        self.has_guard = params.has_guard
+        self.guard_type = params.guard_type
+        self.y_length = params.y_length
+        self.y_guard = params.y_length * y_guard_ratio
+        self._apply_knife_branches()
+        self.x_length = params.x_length
+        # NOTE: x_guard and has_tip do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.x_guard = uniform(0, 0.2)
+            self.has_tip = bool(uniform(0, 1) < 0.7)
+        self.thickness = params.thickness
+        self.guard_depth = guard_depth_mult * params.thickness
+        self._x_anchor_1 = params.x_anchor_1
+        self._x_anchor_2 = params.x_anchor_2
+        self._y_anchor_1_mult = params.y_anchor_1_mult
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:
+        if self._use_fixed_spawn_draws:
+            x1 = self._x_anchor_1
+            x2 = self._x_anchor_2
+            y1 = self.y_length * self._y_anchor_1_mult
+        else:
+            x1 = uniform(0.5, 0.8)
+            x2 = uniform(0.3, 0.4)
+            y1 = self.y_length * log_uniform(0.75, 0.95)
         x_anchors = np.array(
             [
                 self.x_end,
-                uniform(0.5, 0.8) * self.x_end,
-                uniform(0.3, 0.4) * self.x_end,
+                x1 * self.x_end,
+                x2 * self.x_end,
                 1e-3,
                 0,
                 -1e-3,
@@ -96,7 +190,7 @@ class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
         y_anchors = np.array(
             [
                 1e-3,
-                self.y_length * log_uniform(0.75, 0.95),
+                y1,
                 self.y_length,
                 self.y_length,
                 self.y_length,

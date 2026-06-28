@@ -42,10 +42,12 @@ class BedParameters(ChairParameters):
     ]
     leg_height: Annotated[float, Field(ge=0.2, le=0.6, json_schema_extra={"editable": True})]
     has_all_legs_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     leg_decor_wrapped_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     seat_subdivisions_x: Annotated[
         int, Field(ge=1, le=3, json_schema_extra={"editable": True})
@@ -68,11 +70,19 @@ class BedParameters(ChairParameters):
     panel_margin: Annotated[
         float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
     ]
+    leg_trim_draw: Annotated[
+        float, Field(ge=0.7, le=0.9, json_schema_extra={"editable": True})
+    ] = 0.8
+    divide_z_scale_draw: Annotated[
+        float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})
+    ] = 0.75
     sheet_folded_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     has_cover_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     mattress_width_scale: Annotated[
         float, Field(ge=0.88, le=0.96, json_schema_extra={"editable": True})
@@ -211,6 +221,7 @@ class BedFactory(bedframe.BedFrameFactory):
     def _sample_spawn_parameters(
         self, params: BedParameters, seed: int, i: int
     ) -> BedParameters:
+        params = super()._sample_spawn_parameters(params, seed, i)
         internals = self._resolve_bed_internals(params.seed)
         n_pillows = int(np.random.randint(2, 4))
         sheet_type = internals["sheet_type"]
@@ -252,7 +263,7 @@ class BedFactory(bedframe.BedFrameFactory):
             )()()
         self.scratch = internals["scratch"]
         self.edge_wear = internals["edge_wear"]
-        super().apply_parameters(params, spawn_scope=False)
+        super().apply_parameters(params, spawn_scope=spawn_scope)
         self.has_all_legs = params.has_all_legs_draw < 0.2
         self.leg_decor_type = internals["leg_decor_type"]
         self.leg_decor_wrapped = params.leg_decor_wrapped_draw < 0.5

@@ -9,21 +9,20 @@ from typing import Any, ClassVar
 import numpy as np
 import shapely
 import shapely.affinity
+from numpy.random import uniform
 
 from infinigen.assets.objects.elements.staircases.straight import (
     StraightStaircaseFactory,
+    _straight_staircase_legacy_init,
 )
 from infinigen.assets.utils.decorate import read_co
 from infinigen.assets.utils.object import join_objects
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 
 
 def _cantilever_legacy_init(
@@ -36,7 +35,7 @@ def _cantilever_legacy_init(
     _straight_staircase_legacy_init(inst, seed, coarse, constants)
 
 
-class CantileverStaircaseParameters(LegacyBridgeParameters):
+class CantileverStaircaseParameters(AssetParameters):
     pass
 
 
@@ -51,19 +50,18 @@ class CantileverStaircaseFactory(StraightStaircaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> CantileverStaircaseParameters:
-        return legacy_init_to_parameters(
-            CantileverStaircaseParameters,
-            CantileverStaircaseFactory,
-            seed,
-            self.coarse,
-            self._constants_arg,
-            init_fn=_cantilever_legacy_init,
-        )
+        return CantileverStaircaseParameters(seed=seed)
 
     def apply_parameters(
         self, params: CantileverStaircaseParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _cantilever_legacy_init(self, params.seed, self.coarse, self._constants_arg)
+        with FixedSeed(params.seed):
+            self.mirror = bool(uniform() < 0.5)
+            self.handrail_cap_width_ratio = uniform(0.2, 0.5)
+            self.handrail_cap_segments = int(np.random.randint(4, 7))
+        self._use_fixed_spawn_draws = spawn_scope
 
     def valid_contour(self, offset, contour, doors, lower=True):
         valid = super().valid_contour(offset, contour, doors, lower)

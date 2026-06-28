@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.materials.plant import simple_greenery
 from infinigen.assets.objects.grassland import flower as Flower
@@ -20,10 +21,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.tagging import tag_nodegroup, tag_object
 from infinigen.core.util import blender as butil
@@ -827,21 +825,12 @@ def geo_flowerplant(nw: NodeWrangler, **kwargs):
     group_output = nw.new_node(Nodes.GroupOutput, input_kwargs={"Geometry": transform})
 
 
-def _flower_plant_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    inst.leaves_version_num = 4
-    inst.flowers_version_num = 1
-
-
-def _sample_flower_plant_spawn_fields() -> dict[str, Any]:
-    return {
-        "leaf_seeds": [int(randint(0, 1000, size=(1,))[0]) for _ in range(4)],
-        "flower_seeds": [int(randint(0, 1000, size=(1,))[0]) for _ in range(1)],
-        "flower_rads": [float(uniform(0.4, 0.7, size=(1,))[0]) for _ in range(1)],
-    }
-
-
-class FlowerPlantParameters(LegacyBridgeParameters):
-    pass
+class FlowerPlantParameters(AssetParameters):
+    leaf_seed: Annotated[int, Field(ge=0, le=1000, json_schema_extra={"editable": False})]
+    flower_seed: Annotated[int, Field(ge=0, le=1000, json_schema_extra={"editable": False})]
+    flower_rad: Annotated[
+        float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})
+    ]
 
 
 class FlowerPlantFactory(ParameterizedAssetFactory, AssetFactory):
@@ -852,23 +841,36 @@ class FlowerPlantFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> FlowerPlantParameters:
-        return legacy_init_to_parameters(
-            FlowerPlantParameters,
-            FlowerPlantFactory,
-            seed,
-            self.coarse,
-            init_fn=_flower_plant_legacy_init,
+        self.leaves_version_num = 4
+        self.flowers_version_num = 1
+        return FlowerPlantParameters(
+            seed=seed,
+            leaf_seed=int(randint(0, 1000, size=(1,))[0]),
+            flower_seed=int(randint(0, 1000, size=(1,))[0]),
+            flower_rad=float(uniform(0.4, 0.7, size=(1,))[0]),
         )
 
     def _sample_spawn_parameters(
         self, params: FlowerPlantParameters, seed: int, i: int
     ) -> FlowerPlantParameters:
-        return params.model_copy(update=_sample_flower_plant_spawn_fields())
+        return params.model_copy(
+            update={
+                "leaf_seed": int(randint(0, 1000, size=(1,))[0]),
+                "flower_seed": int(randint(0, 1000, size=(1,))[0]),
+                "flower_rad": float(uniform(0.4, 0.7, size=(1,))[0]),
+            }
+        )
 
     def apply_parameters(
         self, params: FlowerPlantParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self.leaves_version_num = 4
+        self.flowers_version_num = 1
+        self.leaf_seeds = [params.leaf_seed] * self.leaves_version_num
+        self.flower_seeds = [params.flower_seed]
+        self.flower_rads = [params.flower_rad]
+        self._use_fixed_spawn_draws = spawn_scope
+
 
     def create_asset(self, **params):
         bpy.ops.mesh.primitive_plane_add(

@@ -9,11 +9,12 @@
 # Code generated using version v2.0.1 of the node_transpiler
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import normal, uniform
+from pydantic import Field
 
 from infinigen.assets import colors
 from infinigen.core import surface
@@ -22,10 +23,7 @@ from infinigen.core.nodes.node_wrangler import Nodes
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.tagging import tag_nodegroup, tag_object
 from infinigen.core.util import blender as butil
@@ -910,51 +908,114 @@ def geo_flower(nw, petal_material, center_material):
     )
 
 
-class TreeFlowerParameters(LegacyBridgeParameters):
-    pass
-
-
-def _tree_flower_legacy_init(
-    inst: Any, seed: int, coarse: bool, rad: float | None = None, diversity_fac: float = 0.25
-) -> None:
-    AssetFactory.__init__(inst, seed, coarse)
-    inst.rad = uniform(0.15, 0.25) if rad is None else rad
-    inst.diversity_fac = diversity_fac
-    inst.petal_color_hsv = colors.tree_petal_hsv()
-    inst.petal_material = surface.shaderfunc_to_material(
-        shader_petal, inst.petal_color_hsv
-    )
-    inst.center_material = surface.shaderfunc_to_material(shader_flower_center)
-    inst.species_params = TreeFlowerFactory.get_flower_params(inst.rad)
+class TreeFlowerParameters(AssetParameters):
+    rad: Annotated[float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": False})]
+    pct_inner: Annotated[float, Field(ge=0.05, le=0.4, json_schema_extra={"editable": True})]
+    curl: Annotated[float, Field(ge=0.261799, le=2.443461, json_schema_extra={"editable": True})]
+    min_angle: Annotated[
+        float, Field(ge=-0.349066, le=1.745329, json_schema_extra={"editable": True})
+    ]
+    max_angle: Annotated[
+        float, Field(ge=-0.349066, le=1.745329, json_schema_extra={"editable": True})
+    ]
+    inst_rad_scale: Annotated[
+        float, Field(ge=0.85, le=1.15, json_schema_extra={"editable": False})
+    ] = 1.0
+    rotation_z: Annotated[
+        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
+    ] = 0.0
 
 
 class TreeFlowerFactory(ParameterizedAssetFactory, AssetFactory):
     parameters_model: ClassVar[type[AssetParameters]] = TreeFlowerParameters
 
-    def __init__(self, factory_seed, rad=uniform(0.15, 0.25), diversity_fac=0.25):
+    def __init__(
+        self,
+        factory_seed,
+        rad=uniform(0.15, 0.25),
+        diversity_fac=0.25,
+        leaf_width=None,
+    ):
         self._rad = rad
         self._diversity_fac = diversity_fac
+        self._leaf_width = leaf_width
         AssetFactory.__init__(self, factory_seed)
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> TreeFlowerParameters:
-        return legacy_init_to_parameters(
-            TreeFlowerParameters,
-            TreeFlowerFactory,
-            seed,
-            False,
-            self._rad,
-            self._diversity_fac,
-            init_fn=_tree_flower_legacy_init,
+        rad = self._rad if self._rad is not None else uniform(0.15, 0.25)
+        pct_inner = uniform(0.05, 0.4)
+        min_angle, max_angle = np.deg2rad(np.sort(uniform(-20, 100, 2)))
+        self.petal_color_hsv = colors.tree_petal_hsv()
+        self.petal_material = surface.shaderfunc_to_material(
+            shader_petal, self.petal_color_hsv
+        )
+        self.center_material = surface.shaderfunc_to_material(shader_flower_center)
+        return TreeFlowerParameters(
+            seed=seed,
+            rad=rad,
+            pct_inner=pct_inner,
+            curl=np.deg2rad(normal(30, 50)),
+            min_angle=min_angle,
+            max_angle=max_angle,
+        )
+
+    def _sample_spawn_parameters(
+        self, params: TreeFlowerParameters, seed: int, i: int
+    ) -> TreeFlowerParameters:
+        return params.model_copy(
+            update={
+                "inst_rad_scale": float(normal(1, 0.05)),
+                "rotation_z": uniform(0, 360),
+            }
         )
 
     def apply_parameters(
         self, params: TreeFlowerParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        # NOTE: rad may be overridden by parent TreeFlowerFactory(_rad=...) preset; inst_rad_scale spawn draw also modulates size; excluded from quartet sampling.
+        self.rad = params.rad
+        # NOTE: diversity_fac, seed_size, and wrinkle do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.diversity_fac = self._diversity_fac
+            self.seed_size = uniform(0.005, 0.01)
+            self.wrinkle = uniform(0.003, 0.02)
+        self.species_params = self._build_flower_params(params.rad, params)
+        self._spawn_params = params
+        self._use_fixed_spawn_draws = spawn_scope
+
+    def _width_scale(self) -> float:
+        if self._leaf_width is None:
+            return 1.0
+        return self._leaf_width / 0.35
+
+    def _build_flower_params(
+        self, overall_rad: float, params: TreeFlowerParameters
+    ) -> dict:
+        width_scale = self._width_scale()
+        base_width = 2 * np.pi * overall_rad * params.pct_inner / normal(20, 5)
+        top_width = overall_rad * np.clip(normal(0.7, 0.3), base_width * 1.2, 100)
+        return {
+            "Center Rad": overall_rad * params.pct_inner,
+            "Petal Dims": np.array(
+                [
+                    overall_rad * (1 - params.pct_inner),
+                    base_width * width_scale,
+                    top_width * width_scale,
+                ],
+                dtype=np.float32,
+            ),
+            "Seed Size": self.seed_size,
+            "Min Petal Angle": params.min_angle,
+            "Max Petal Angle": params.max_angle,
+            "Wrinkle": self.wrinkle,
+            "Curl": params.curl,
+        }
+
 
     @staticmethod
-    def get_flower_params(overall_rad=0.05):
+    def get_flower_params(overall_rad=0.05, leaf_width=None):
+        width_scale = 1.0 if leaf_width is None else leaf_width / 0.35
         pct_inner = uniform(0.05, 0.4)
         base_width = 2 * np.pi * overall_rad * pct_inner / normal(20, 5)
         top_width = overall_rad * np.clip(normal(0.7, 0.3), base_width * 1.2, 100)
@@ -964,7 +1025,12 @@ class TreeFlowerFactory(ParameterizedAssetFactory, AssetFactory):
         return {
             "Center Rad": overall_rad * pct_inner,
             "Petal Dims": np.array(
-                [overall_rad * (1 - pct_inner), base_width, top_width], dtype=np.float32
+                [
+                    overall_rad * (1 - pct_inner),
+                    base_width * width_scale,
+                    top_width * width_scale,
+                ],
+                dtype=np.float32,
             ),
             "Seed Size": uniform(0.005, 0.01),
             "Min Petal Angle": min_angle,
@@ -984,12 +1050,21 @@ class TreeFlowerFactory(ParameterizedAssetFactory, AssetFactory):
             },
         )
 
-        inst_params = self.get_flower_params(self.rad * normal(1, 0.05))
+        if self._use_fixed_spawn_draws:
+            inst_params = self._build_flower_params(
+                self.rad * self._spawn_params.inst_rad_scale, self._spawn_params
+            )
+            rotation_z = self._spawn_params.rotation_z
+        else:
+            inst_params = self.get_flower_params(
+                self.rad * normal(1, 0.05), leaf_width=self._leaf_width
+            )
+            rotation_z = uniform(0, 360)
         params = dict_lerp(self.species_params, inst_params, 0.25)
         butil.set_geomod_inputs(mod, params)
 
         butil.apply_modifiers(vert, mod)
 
-        vert.rotation_euler.z = uniform(0, 360)
+        vert.rotation_euler.z = rotation_z
         tag_object(vert, "flower")
         return vert

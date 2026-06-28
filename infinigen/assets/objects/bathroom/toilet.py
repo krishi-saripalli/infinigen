@@ -28,7 +28,10 @@ from infinigen.assets.utils.decorate import (
 from infinigen.assets.utils.draw import align_bezier
 from infinigen.assets.utils.object import join_objects, new_bbox, new_cube, new_cylinder
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.math import FixedSeed, normalize
@@ -36,64 +39,65 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class ToiletParameters(AssetParameters):
-    size: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": True})]
-    width_ratio: Annotated[float, Field(ge=0.7, le=0.8, json_schema_extra={"editable": True})]
-    height_ratio: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": True})]
-    size_mid: Annotated[float, Field(ge=0.6, le=0.65, json_schema_extra={"editable": True})]
-    depth_ratio: Annotated[float, Field(ge=0.5, le=0.6, json_schema_extra={"editable": True})]
-    tube_scale: Annotated[float, Field(ge=0.25, le=0.3, json_schema_extra={"editable": True})]
-    thickness: Annotated[float, Field(ge=0.05, le=0.06, json_schema_extra={"editable": True})]
-    extrude_height: Annotated[
-        float, Field(ge=0.015, le=0.02, json_schema_extra={"editable": True})
-    ]
-    stand_depth_ratio: Annotated[
-        float, Field(ge=0.85, le=0.95, json_schema_extra={"editable": True})
-    ]
-    stand_scale: Annotated[float, Field(ge=0.7, le=0.85, json_schema_extra={"editable": True})]
-    bottom_offset: Annotated[float, Field(ge=0.5, le=1.5, json_schema_extra={"editable": True})]
-    back_thickness_ratio: Annotated[
-        float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": True})
-    ]
-    back_size_ratio: Annotated[float, Field(ge=0.55, le=0.65, json_schema_extra={"editable": True})]
-    back_scale: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})]
-    seat_thickness_ratio: Annotated[
-        float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": True})
-    ]
-    seat_size_ratio: Annotated[float, Field(ge=1.2, le=1.6, json_schema_extra={"editable": True})]
-    has_seat_cut_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
-    tank_width_ratio: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
+    height_ratio: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": False})]
     tank_height_ratio: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})]
-    tank_size_gap: Annotated[float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})]
-    tank_cap_height: Annotated[
-        float, Field(ge=0.03, le=0.04, json_schema_extra={"editable": True})
-    ]
-    tank_cap_extrude_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
-    tank_cap_extrude_amount: Annotated[
-        float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
-    ] = 0.0075
+    tank_cap_extrude: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = False
     cover_rotation: Annotated[
         float, Field(ge=0.0, le=1.570796, json_schema_extra={"editable": True})
     ]
     hardware_cap: Annotated[
-        float, Field(ge=0.01, le=0.015, json_schema_extra={"editable": True})
-    ]
-    hardware_radius: Annotated[
-        float, Field(ge=0.015, le=0.02, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.01,
+            le=0.015,
+            json_schema_extra={"editable": False},
+        ),
     ]
     hardware_length: Annotated[
-        float, Field(ge=0.04, le=0.05, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.04,
+            le=0.05,
+            json_schema_extra={"editable": False},
+        ),
     ]
-    hardware_on_side_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    hardware_on_side: Annotated[
+        bool,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "bool",
+            }
+        ),
     ]
-    scratch_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
+    scratch_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
     edge_wear_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
+    flush_control: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["button", "handle"],
+            }
+        ),
+    ] = "button"
 
 
 class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
@@ -103,7 +107,7 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _sample_runtime(self) -> tuple[Any, Any, Any, Any, tuple[float, float, float, float], str]:
+    def _sample_runtime(self) -> tuple[Any, Any, Any, Any, tuple[float, float, float, float]]:
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
         scratch_draw = uniform()
@@ -114,7 +118,6 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
             None if scratch_draw > scratch_prob else scratch_fn(),
             None if edge_wear_draw > edge_wear_prob else edge_wear_fn(),
             log_uniform(0.8, 1.2, 4),
-            np.random.choice(["button", "handle"]),
         )
 
     def _sample_init_parameters(self, seed: int) -> ToiletParameters:
@@ -124,41 +127,19 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
             self._scratch,
             self._edge_wear,
             self._curve_scale,
-            self._hardware_type,
         ) = self._sample_runtime()
-        tank_cap_extrude_draw = uniform()
         return ToiletParameters(
             seed=seed,
-            size=uniform(0.4, 0.5),
-            width_ratio=uniform(0.7, 0.8),
             height_ratio=uniform(0.8, 0.9),
-            size_mid=uniform(0.6, 0.65),
-            depth_ratio=uniform(0.5, 0.6),
-            tube_scale=uniform(0.25, 0.3),
-            thickness=uniform(0.05, 0.06),
-            extrude_height=uniform(0.015, 0.02),
-            stand_depth_ratio=uniform(0.85, 0.95),
-            stand_scale=uniform(0.7, 0.85),
-            bottom_offset=uniform(0.5, 1.5),
-            back_thickness_ratio=uniform(0, 0.8),
-            back_size_ratio=uniform(0.55, 0.65),
-            back_scale=uniform(0.8, 1.0),
-            seat_thickness_ratio=uniform(0.1, 0.3),
-            seat_size_ratio=uniform(1.2, 1.6),
-            has_seat_cut_draw=uniform(),
-            tank_width_ratio=uniform(1.0, 1.2),
             tank_height_ratio=uniform(0.6, 1.0),
-            tank_size_gap=uniform(0.02, 0.03),
-            tank_cap_height=uniform(0.03, 0.04),
-            tank_cap_extrude_draw=tank_cap_extrude_draw,
-            tank_cap_extrude_amount=uniform(0.005, 0.01),
+            tank_cap_extrude=False,
             cover_rotation=uniform(0, np.pi / 2),
             hardware_cap=uniform(0.01, 0.015),
-            hardware_radius=uniform(0.015, 0.02),
             hardware_length=uniform(0.04, 0.05),
-            hardware_on_side_draw=uniform(),
+            hardware_on_side=bool(uniform() < 0.5),
             scratch_draw=uniform(),
             edge_wear_draw=uniform(),
+            flush_control=str(np.random.choice(["button", "handle"])),
         )
 
     def apply_parameters(
@@ -171,41 +152,55 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
                 self._scratch,
                 self._edge_wear,
                 self._curve_scale,
-                self._hardware_type,
             ) = self._sample_runtime()
-        self.size = params.size
-        self.width = params.size * params.width_ratio
-        self.height = params.size * params.height_ratio
-        self.size_mid = params.size_mid
+        # NOTE: size sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.size = uniform(0.4, 0.5)
+        # NOTE: width_ratio, size_mid, depth_ratio, tube_scale, thickness, extrude_height, stand_depth_ratio, stand_scale, bottom_offset, back_thickness_ratio, back_size_ratio, back_scale, seat_thickness_ratio, seat_size_ratio, has_seat_cut, tank_width_ratio, tank_size_gap, tank_cap_height, tank_cap_extrude_amount, hardware_radius sampled on self from seed; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.width_ratio = uniform(0.7, 0.8)
+            self.size_mid = uniform(0.6, 0.65)
+            self.depth_ratio = uniform(0.5, 0.6)
+            self.tube_scale = uniform(0.25, 0.3)
+            self.thickness = uniform(0.05, 0.06)
+            self.extrude_height = uniform(0.015, 0.02)
+            self.stand_depth_ratio = uniform(0.85, 0.95)
+            self.stand_scale = uniform(0.7, 0.85)
+            self.bottom_offset = uniform(0.5, 1.5)
+            self.back_thickness_ratio = uniform(0, 0.8)
+            self.back_size_ratio = uniform(0.55, 0.65)
+            self.back_scale = uniform(0.8, 1.0)
+            self.seat_thickness_ratio = uniform(0.1, 0.3)
+            self.seat_size_ratio = uniform(1.2, 1.6)
+            self.has_seat_cut = bool(uniform() < 0.1)
+            self.tank_width_ratio = uniform(1.0, 1.2)
+            self.tank_size_gap = uniform(0.02, 0.03)
+            self.tank_cap_height = uniform(0.03, 0.04)
+            self.tank_cap_extrude_amount = uniform(0.005, 0.01)
+            self.hardware_radius = uniform(0.015, 0.02)
+        self.width = self.size * self.width_ratio
+        # NOTE: height_ratio scales self.size but size is resampled on self; effect diluted by normalization, excluded from quartet sampling.
+        self.height = self.size * params.height_ratio
         self.curve_scale = self._curve_scale
-        self.depth = params.size * params.depth_ratio
-        self.tube_scale = params.tube_scale
-        self.thickness = params.thickness
-        self.extrude_height = params.extrude_height
-        self.stand_depth = self.depth * params.stand_depth_ratio
-        self.stand_scale = params.stand_scale
-        self.bottom_offset = params.bottom_offset
-        self.back_thickness = params.thickness * params.back_thickness_ratio
-        self.back_size = params.size * params.back_size_ratio
-        self.back_scale = params.back_scale
-        self.seat_thickness = params.seat_thickness_ratio * params.thickness
-        self.seat_size = params.thickness * params.seat_size_ratio
-        self.has_seat_cut = params.has_seat_cut_draw < 0.1
-        self.tank_width = self.width * params.tank_width_ratio
+        self.depth = self.size * self.depth_ratio
+        self.stand_depth = self.depth * self.stand_depth_ratio
+        self.back_thickness = self.thickness * self.back_thickness_ratio
+        self.back_size = self.size * self.back_size_ratio
+        self.seat_thickness = self.seat_thickness_ratio * self.thickness
+        self.seat_size = self.thickness * self.seat_size_ratio
+        self.tank_width = self.width * self.tank_width_ratio
         self.tank_height = self.height * params.tank_height_ratio
-        self.tank_size = self.back_size - self.seat_size - params.tank_size_gap
-        self.tank_cap_height = params.tank_cap_height
+        self.tank_size = self.back_size - self.seat_size - self.tank_size_gap
         self.tank_cap_extrude = (
             0
-            if params.tank_cap_extrude_draw < 0.5
-            else params.tank_cap_extrude_amount
+            if params.tank_cap_extrude
+            else self.tank_cap_extrude_amount
         )
         self.cover_rotation = -params.cover_rotation
-        self.hardware_type = self._hardware_type
+        self.hardware_type = params.flush_control
         self.hardware_cap = params.hardware_cap
-        self.hardware_radius = params.hardware_radius
         self.hardware_length = params.hardware_length
-        self.hardware_on_side = params.hardware_on_side_draw < 0.5
+        self.hardware_on_side = params.hardware_on_side
         self.surface = self._surface
         self.hardware_surface = self._hardware_surface
         self.scratch = self._scratch
@@ -233,14 +228,14 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
     def create_asset(self, **params) -> bpy.types.Object:
         upper = self.build_curve()
         lower = deep_clone_obj(upper)
-        lower.scale = [self.tube_scale] * 3
+        lower.scale = [self.tube_scale * self.stand_scale] * 3
         lower.location = 0, self.tube_scale * self.mid_offset / 2, -self.depth
         butil.apply_transform(lower, True)
         bottom = deep_clone_obj(upper)
         bottom.scale = [self.stand_scale] * 3
         bottom.location = (
             0,
-            self.tube_scale * (1 - self.size_mid) * self.size / 2 * self.bottom_offset,
+            self.bottom_offset * self.stand_scale * self.mid_offset,
             -self.height,
         )
         butil.apply_transform(bottom, True)
@@ -263,7 +258,8 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
         return obj
 
     def build_curve(self):
-        x_anchors = [0, self.width / 2, 0]
+        half_width = max(self.width, self.tank_width) / 2
+        x_anchors = [0, half_width, 0]
         y_anchors = [-self.size_mid * self.size, 0, self.mid_offset]
         axes = [np.array([1, 0, 0]), np.array([0, 1, 0]), np.array([1, 0, 0])]
         obj = align_bezier([x_anchors, y_anchors, 0], axes, self.curve_scale)
@@ -297,7 +293,13 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
                 }
             )
         x, y, z = read_co(obj).T
-        write_co(obj, np.stack([x, y, np.clip(z, None, self.extrude_height)], -1))
+        write_co(
+            obj,
+            np.stack(
+                [x, y, np.clip(z, None, self.thickness + self.extrude_height)],
+                -1,
+            ),
+        )
         return obj
 
     def make_seat(self, obj):
@@ -375,6 +377,9 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
             bpy.ops.mesh.separate(type="SELECTED")
         stand = next(o for o in bpy.context.selected_objects if o != obj)
         stand = join_objects([stand, bottom])
+        depth_scale = 1.0 + self.stand_depth / max(self.depth, 1e-6)
+        stand.scale = [self.stand_scale, self.stand_scale, depth_scale]
+        butil.apply_transform(stand, True)
         with butil.ViewportMode(stand, "EDIT"):
             bpy.ops.mesh.select_mode(type="EDGE")
             bpy.ops.mesh.select_all(action="SELECT")
@@ -403,7 +408,7 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
                     "value": (0, self.back_size + self.thickness * 2, 0)
                 }
             )
-            bpy.ops.transform.resize(value=(self.back_scale, 1, 1))
+            bpy.ops.transform.resize(value=(self.back_scale, self.back_scale, 1))
             bpy.ops.mesh.edge_face_add()
         back.location[1] -= 0.01
         butil.apply_transform(back, True)
@@ -448,7 +453,7 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
         obj.scale = (
             self.hardware_radius,
             self.hardware_radius,
-            self.tank_cap_height / 2 + 1e-3,
+            self.tank_cap_height / 2 + self.hardware_radius,
         )
         obj.location = (
             0,

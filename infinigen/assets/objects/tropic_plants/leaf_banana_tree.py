@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import normal, uniform
+from pydantic import Field
 
 from infinigen.assets.objects.tropic_plants.tropic_plant_utils import (
     nodegroup_nodegroup_leaf_gen,
@@ -26,9 +27,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
 )
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.color import hsv2rgba
@@ -831,7 +830,43 @@ def geometry_plant_nodes(nw: NodeWrangler, **kwargs):
 
 
 class LeafBananaTreeParameters(AssetParameters):
-    pass
+    leaf_width: Annotated[
+        float, Field(ge=0.5, le=0.85, json_schema_extra={"editable": False})
+    ]
+    leaf_h_wave_scale: Annotated[
+        float, Field(ge=0.02, le=0.2, json_schema_extra={"editable": False})
+    ]
+    leaf_jigsaw_depth: Annotated[
+        float, Field(ge=0.0, le=1.7, json_schema_extra={"editable": False})
+    ]
+    leaf_w_wave_scale: Annotated[
+        float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": False})
+    ]
+    leaf_x_curvature: Annotated[
+        float, Field(ge=0.0, le=0.1, json_schema_extra={"editable": False})
+    ]
+    stem_color_h: Annotated[
+        float, Field(ge=0.25, le=0.32, json_schema_extra={"editable": False})
+    ]
+    stem_color_s: Annotated[
+        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})
+    ]
+    stem_color_v: Annotated[
+        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})
+    ]
+    has_jigsaw: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    leaf_contour_profile: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["oval", "pear"],
+            }
+        ),
+    ] = "oval"
 
 
 class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
@@ -842,22 +877,51 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> LeafBananaTreeParameters:
-        return LeafBananaTreeParameters(seed=seed)
+        return LeafBananaTreeParameters(
+            seed=seed,
+            leaf_width=uniform(0.5, 0.85),
+            leaf_h_wave_scale=uniform(0.02, 0.2),
+            leaf_jigsaw_depth=uniform(0.8, 1.7),
+            leaf_w_wave_scale=uniform(0.05, 0.25),
+            leaf_x_curvature=uniform(0.0, 0.1),
+            stem_color_h=uniform(0.25, 0.32),
+            stem_color_s=uniform(0.8, 1.0),
+            stem_color_v=uniform(0.8, 1.0),
+            has_jigsaw=True,
+            leaf_contour_profile=str(np.random.choice(["oval", "pear"])),
+        )
 
     def _sample_spawn_parameters(
         self, params: LeafBananaTreeParameters, seed: int, i: int
     ) -> LeafBananaTreeParameters:
-        inst = LeafBananaTreeFactory.__new__(LeafBananaTreeFactory)
-        AssetFactory.__init__(inst, seed, self.coarse)
-        self.geom_kwargs = inst.update_params(**{})
-        return LeafBananaTreeParameters(seed=seed)
+        return params.model_copy(
+            update={
+                "leaf_width": uniform(0.5, 0.85),
+                "leaf_h_wave_scale": uniform(0.02, 0.2),
+                "leaf_jigsaw_depth": uniform(0.8, 1.7),
+                "leaf_w_wave_scale": uniform(0.05, 0.25),
+                "leaf_x_curvature": uniform(0.0, 0.1),
+                "stem_color_h": uniform(0.25, 0.32),
+                "stem_color_s": uniform(0.8, 1.0),
+                "stem_color_v": uniform(0.8, 1.0),
+                "has_jigsaw": True,
+                "leaf_contour_profile": str(np.random.choice(["oval", "pear"])),
+            }
+        )
 
     def apply_parameters(
         self, params: LeafBananaTreeParameters, *, spawn_scope: bool = True
     ) -> None:
-        if not hasattr(self, "geom_kwargs"):
-            with FixedSeed(params.seed):
-                self.geom_kwargs = self.update_params(**{})
+        self.geom_kwargs = self.update_params(
+            leaf_width=params.leaf_width,
+            leaf_h_wave_scale=params.leaf_h_wave_scale,
+            leaf_jigsaw_depth=0.0 if not params.has_jigsaw else params.leaf_jigsaw_depth,
+            leaf_w_wave_scale=params.leaf_w_wave_scale,
+            leaf_x_curvature=params.leaf_x_curvature,
+            stem_color_hsv=(params.stem_color_h, params.stem_color_s, params.stem_color_v),
+            has_jigsaw=params.has_jigsaw,
+            leaf_contour_profile=params.leaf_contour_profile,
+        )
         self._use_fixed_spawn_draws = spawn_scope
 
     def get_leaf_contour(self, mode):
@@ -944,12 +1008,19 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
             )
 
         if params.get("leaf_contour_control_points", None) is None:
-            mode = np.random.choice(["oval", "pear"], p=[0.5, 0.5])
+            mode = params.get(
+                "leaf_contour_profile",
+                str(np.random.choice(["oval", "pear"], p=[0.5, 0.5])),
+            )
             params["leaf_contour_control_points"] = self.get_leaf_contour(mode)
 
         if params.get("leaf_jigsaw_depth", None) is None:
-            mode = np.random.choice([0, 1], p=[0.4, 0.6])
-            params["leaf_jigsaw_depth"] = mode * uniform(0.8, 1.7)
+            has_jigsaw = params.get(
+                "has_jigsaw", bool(np.random.choice([False, True], p=[0.4, 0.6]))
+            )
+            params["leaf_jigsaw_depth"] = uniform(0.8, 1.7) if has_jigsaw else 0.0
+        elif not params.get("has_jigsaw", params["leaf_jigsaw_depth"] > 0.0):
+            params["leaf_jigsaw_depth"] = 0.0
 
         if params.get("leaf_width", None) is None:
             params["leaf_width"] = uniform(0.5, 0.85)
@@ -1003,8 +1074,13 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
         return obj
 
 
-class PlantBananaTreeParameters(LegacyBridgeParameters):
-    pass
+class PlantBananaTreeParameters(LeafBananaTreeParameters):
+    plant_z_rotate: Annotated[
+        float, Field(ge=-0.4, le=0.4, json_schema_extra={"editable": True})
+    ]
+    plant_scale: Annotated[
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
+    ]
 
 
 class PlantBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
@@ -1012,30 +1088,53 @@ class PlantBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
 
     def __init__(self, factory_seed, coarse=False):
         super(PlantBananaTreeFactory, self).__init__(factory_seed, coarse=coarse)
+        self.leaf_tropical_factory = LeafBananaTreeFactory(factory_seed, coarse)
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> PlantBananaTreeParameters:
+        leaf_params = self.leaf_tropical_factory._sample_init_parameters(seed)
         return PlantBananaTreeParameters(
-            seed=seed,
-            leaf_tropical_factory=LeafBananaTreeFactory(seed, self.coarse),
+            **leaf_params.model_dump(),
+            plant_z_rotate=uniform(-0.4, 0.4),
+            plant_scale=uniform(0.8, 1.5),
         )
 
     def _sample_spawn_parameters(
         self, params: PlantBananaTreeParameters, seed: int, i: int
     ) -> PlantBananaTreeParameters:
-        inst = PlantBananaTreeFactory.__new__(PlantBananaTreeFactory)
-        AssetFactory.__init__(inst, seed, self.coarse)
-        inst.leaf_tropical_factory = params.leaf_tropical_factory
-        geom_kwargs = inst.update_params(**{})
-        return PlantBananaTreeParameters(seed=seed, **geom_kwargs)
+        leaf_field_names = LeafBananaTreeParameters.model_fields.keys()
+        leaf_data = {
+            k: v for k, v in params.model_dump().items() if k in leaf_field_names
+        }
+        leaf_params = self.leaf_tropical_factory._sample_spawn_parameters(
+            LeafBananaTreeParameters(**leaf_data), seed, i
+        )
+        return PlantBananaTreeParameters(
+            **leaf_params.model_dump(),
+            plant_z_rotate=uniform(-0.4, 0.4),
+            plant_scale=uniform(0.8, 1.5),
+        )
 
     def apply_parameters(
         self, params: PlantBananaTreeParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
-        self.geom_kwargs = params.model_dump(
-            exclude={"seed", "leaf_tropical_factory"}, mode="python"
+        leaf_field_names = LeafBananaTreeParameters.model_fields.keys()
+        leaf_data = {
+            k: v for k, v in params.model_dump().items() if k in leaf_field_names
+        }
+        self.leaf_tropical_factory.apply_parameters(
+            LeafBananaTreeParameters(**leaf_data), spawn_scope=spawn_scope
         )
+        s = params.plant_scale
+        self.geom_kwargs = self.leaf_tropical_factory.geom_kwargs.copy()
+        self.geom_kwargs.update(
+            {
+                "plant_translation": (0.0, 0.0, 0.0),
+                "plant_z_rotate": params.plant_z_rotate,
+                "plant_scale": (s, s, s),
+            }
+        )
+        self._use_fixed_spawn_draws = spawn_scope
 
     def update_params(self, **params):
         params = self.leaf_tropical_factory.update_params(**params)

@@ -6,21 +6,14 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.objects.monocot.growth import MonocotGrowthFactory
-from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import (
-    AssetParameters,
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
-)
 from infinigen.assets.utils.decorate import (
     distance2boundary,
     write_attribute,
@@ -32,6 +25,11 @@ from infinigen.assets.utils.object import join_objects
 from infinigen.core import surface
 from infinigen.core.nodes.node_info import Nodes
 from infinigen.core.nodes.node_wrangler import NodeWrangler
+from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.surface import shaderfunc_to_material
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
@@ -40,31 +38,18 @@ from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
-def _veratrum_monocot_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    MonocotGrowthFactory.__init__(inst, seed, coarse)
-    with FixedSeed(seed):
-        inst.stem_offset = uniform(1.0, 1.5)
-        inst.angle = uniform(np.pi / 4, np.pi / 3)
-        inst.z_drag = uniform(0.4, 0.5)
-        inst.bend_angle = np.pi / 2
-        inst.min_y_angle = uniform(np.pi * 0.25, np.pi * 0.35)
-        inst.max_y_angle = uniform(np.pi * 0.6, np.pi * 0.7)
-        inst.count = int(log_uniform(32, 64))
-        inst.scale_curve = (
-            (0, uniform(0.8, 1.0)),
-            (0.4, 0.6),
-            (0.8, uniform(0, 0.1)),
-            (1, 0),
-        )
-        inst.leaf_range = 0, uniform(0.7, 0.8)
-        inst.bud_angle = uniform(np.pi / 15, np.pi / 12)
-        inst.freq = uniform(25, 50)
-        inst.branches_factory = VeratrumBranchMonocotFactory(seed, coarse)
-        inst.branch_material = shaderfunc_to_material(inst.shader_ear)
-
-
-class VeratrumMonocotParameters(LegacyBridgeParameters):
-    pass
+class VeratrumMonocotParameters(AssetParameters):
+    stem_offset: Annotated[float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": True})]
+    angle: Annotated[float, Field(ge=0.785398, le=1.047198, json_schema_extra={"editable": True})]
+    z_drag: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": False})]
+    min_y_angle: Annotated[
+        float, Field(ge=0.785398, le=1.099557, json_schema_extra={"editable": True})
+    ]
+    max_y_angle: Annotated[
+        float, Field(ge=1.884956, le=2.199115, json_schema_extra={"editable": False})
+    ]
+    count: Annotated[float, Field(ge=32.0, le=64.0, json_schema_extra={"editable": True})]
+    leaf_prob: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": False})]
 
 
 class VeratrumMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -74,19 +59,77 @@ class VeratrumMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         AssetFactory.__init__(self, factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_material(self, seed: int) -> None:
+        # NOTE: base_hue is sampled on self in apply_parameters; excluded from quartet sampling (material-only, not exported geometry).
+        with FixedSeed(seed):
+            base_hue = uniform(0.12, 0.32)
+            bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
+            dark_color = hsv2rgba(
+                (base_hue + uniform(-0.03, 0.03)) % 1,
+                uniform(0.8, 1.0),
+                log_uniform(0.05, 0.2),
+            )
+        self.base_hue = base_hue
+        self.material = shaderfunc_to_material(
+            self.shader_monocot, dark_color, bright_color, self.use_distance
+        )
+
     def _sample_init_parameters(self, seed: int) -> VeratrumMonocotParameters:
-        return legacy_init_to_parameters(
-            VeratrumMonocotParameters,
-            VeratrumMonocotFactory,
-            seed,
-            self.coarse,
-            init_fn=_veratrum_monocot_legacy_init,
+        leaf_prob = uniform(0.8, 0.9)
+        self._sample_material(seed)
+        self.branch_material = shaderfunc_to_material(self.shader_ear)
+        self.branches_factory = VeratrumBranchMonocotFactory(seed, self.coarse)
+        return VeratrumMonocotParameters(
+            seed=seed,
+            stem_offset=uniform(1.0, 1.5),
+            angle=uniform(np.pi / 4, np.pi / 3),
+            z_drag=uniform(0.4, 0.5),
+            min_y_angle=uniform(np.pi * 0.25, np.pi * 0.35),
+            max_y_angle=uniform(np.pi * 0.6, np.pi * 0.7),
+            count=log_uniform(32, 64),
+            leaf_prob=leaf_prob,
         )
 
     def apply_parameters(
         self, params: VeratrumMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self._sample_material(params.seed)
+        # NOTE: scale_curve_0 and z_scale do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            scale_curve_0 = uniform(0.8, 1.0)
+            self.z_scale = uniform(1.0, 1.2)
+            scale_curve_2 = uniform(0, 0.1)
+            leaf_range_high = uniform(0.7, 0.8)
+            self.bud_angle = uniform(np.pi / 15, np.pi / 12)
+            self.freq = uniform(25, 50)
+        self.stem_offset = params.stem_offset
+        self.angle = params.angle
+        self.z_drag = params.z_drag
+        self.bend_angle = np.pi / 2
+        self.min_y_angle = params.min_y_angle
+        self.max_y_angle = params.max_y_angle
+        self.count = int(params.count)
+        self.scale_curve = (
+            (0, scale_curve_0),
+            (0.4, 0.6),
+            (0.8, scale_curve_2),
+            (1, 0),
+        )
+        self.leaf_range = (0, leaf_range_high)
+        self.leaf_prob = params.leaf_prob
+        self.radius = 0.01
+        self.perturb = 0.05
+        self.twist_angle = np.pi / 6
+        self.align_factor = 0
+        self.align_direction = (1, 0, 0)
+        self._cache_decor_state(params.seed)
+        self._use_fixed_spawn_draws = spawn_scope
+        if hasattr(self, "branches_factory"):
+            for ear_factory in self.branches_factory.branch_factories:
+                ear_factory.scale_curve = self.scale_curve
+                ear_factory.leaf_range = self.leaf_range
+                ear_factory.z_scale = self.z_scale
+                ear_factory._cache_decor_state(params.seed)
 
     @staticmethod
     def build_base_hue():

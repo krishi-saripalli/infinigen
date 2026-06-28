@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import gin
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.materials.plant import simple_greenery
 from infinigen.assets.objects.small_plants import leaf_general as Leaf
@@ -21,10 +22,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
@@ -1370,23 +1368,20 @@ def geo_fern(nw: NodeWrangler, **kwargs):
     group_output = nw.new_node(Nodes.GroupOutput, input_kwargs={"Geometry": geometry})
 
 
-def _fern_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    inst.leaf_material = simple_greenery.SimpleGreenery()
-
-
-def _sample_fern_spawn_fields() -> dict[str, Any]:
-    type_bit = randint(0, 2, (1,))[0]
-    return {
-        "fern_mode": "young_and_grownup" if type_bit else "all_grownup",
-        "scale": 0.02,
-        "version_num": 5,
-        "pinnae_num": int(randint(12, 30, size=(1,))[0]),
-        "leaf_seed": int(randint(0, 1000, size=(1,))[0]),
-    }
-
-
-class FernParameters(LegacyBridgeParameters):
-    pass
+class FernParameters(AssetParameters):
+    include_young_foliage: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = False
+    young_and_grownup_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
+    ] = 0.0
+    pinnae_num: Annotated[
+        int, Field(ge=12, le=30, json_schema_extra={"editable": False})
+    ] = 12
+    leaf_seed: Annotated[
+        int, Field(ge=0, le=1000, json_schema_extra={"editable": False})
+    ] = 0
 
 
 @gin.register
@@ -1398,23 +1393,35 @@ class FernFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> FernParameters:
-        return legacy_init_to_parameters(
-            FernParameters,
-            FernFactory,
-            seed,
-            self.coarse,
-            init_fn=_fern_legacy_init,
-        )
+        self.leaf_material = simple_greenery.SimpleGreenery()
+        return FernParameters(seed=seed)
 
     def _sample_spawn_parameters(
         self, params: FernParameters, seed: int, i: int
     ) -> FernParameters:
-        return params.model_copy(update=_sample_fern_spawn_fields())
+        return params.model_copy(
+            update={
+                "include_young_foliage": params.include_young_foliage,
+                "young_and_grownup_draw": uniform(),
+                "pinnae_num": int(randint(12, 30, size=(1,))[0]),
+                "leaf_seed": int(randint(0, 1000, size=(1,))[0]),
+            }
+        )
 
     def apply_parameters(
         self, params: FernParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self.fern_mode = (
+            "young_and_grownup"
+            if params.young_and_grownup_draw < 0.5
+            else "all_grownup"
+        )
+        self.scale = 0.02
+        self.version_num = 5
+        self.pinnae_num = params.pinnae_num
+        self.leaf_seed = params.leaf_seed
+        self._use_fixed_spawn_draws = spawn_scope
+
 
     def create_asset(self, **params):
         bpy.ops.mesh.primitive_plane_add(

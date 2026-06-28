@@ -4,10 +4,15 @@
 # Authors: Lingjie Mei
 
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 from mathutils import Vector
 from numpy.random import uniform
+from pydantic import Field
 from scipy.interpolate import interp1d
 
 import infinigen.core.util.blender as butil
@@ -35,6 +40,10 @@ from infinigen.core import surface
 from infinigen.core.nodes.node_info import Nodes
 from infinigen.core.nodes.node_wrangler import NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.surface import shaderfunc_to_material, write_attr_data
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.blender import deep_clone_obj
@@ -43,10 +52,57 @@ from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
-class JellyfishFactory(AssetFactory):
+class JellyfishParameters(AssetParameters):
+    has_arm: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = False
+    has_cap_dent: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = False
+    cap_inner_radius: Annotated[
+        float, Field(ge=0.6, le=0.8, json_schema_extra={"editable": True})
+    ]
+    cap_z_scale: Annotated[
+        float, Field(ge=0.4, le=1.5, json_schema_extra={"editable": True})
+    ]
+    cap_thickness: Annotated[
+        float, Field(ge=0.05, le=0.6, json_schema_extra={"editable": True})
+    ]
+    tentacle_length: Annotated[
+        float, Field(ge=1.5, le=2.5, json_schema_extra={"editable": True})
+    ]
+    tentacle_size: Annotated[
+        float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
+    ]
+    length_scale: Annotated[
+        float, Field(ge=0.25, le=2.0, json_schema_extra={"editable": True})
+    ]
+
+
+class JellyfishFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = JellyfishParameters
+
     def __init__(self, factory_seed, coarse=False):
         super().__init__(factory_seed, coarse)
-        with FixedSeed(factory_seed):
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> JellyfishParameters:
+        return JellyfishParameters(
+            seed=seed,
+            has_arm=bool(uniform(0, 1) < 0.5),
+            has_cap_dent=bool(uniform(0, 1) < 0.5),
+            cap_inner_radius=uniform(0.6, 0.8),
+            cap_z_scale=log_uniform(0.4, 1.5),
+            cap_thickness=uniform(0.05, 0.6),
+            tentacle_length=log_uniform(1.5, 2.5),
+            tentacle_size=uniform(0.005, 0.01),
+            length_scale=log_uniform(0.25, 2.0),
+        )
+
+    def apply_parameters(
+        self, params: JellyfishParameters, *, spawn_scope: bool = True
+    ) -> None:
+        with FixedSeed(params.seed):
             self.base_hue = np.random.normal(0.57, 0.15)
             self.outside_material = (
                 self.make_transparent() if uniform(0, 1) < 0.8 else self.make_dotted()
@@ -59,7 +115,6 @@ class JellyfishFactory(AssetFactory):
             self.arm_mat_opaque = self.make_opaque()
             self.arm_mat_solid = self.make_solid()
 
-            self.has_arm = uniform(0, 1) < 0.5
             arm_radius = uniform(0, 0.3)
             self.arm_radius_range = arm_radius, arm_radius + uniform(0.1, 0.4)
             self.arm_height_range = -uniform(0.4, 0.5), -uniform(0, 0.2)
@@ -70,18 +125,23 @@ class JellyfishFactory(AssetFactory):
             self.arm_displace_range = uniform(0, 0.4), uniform(0.4, 0.8)
 
             self.tentacle_min_distance = uniform(0.04, 0.06)
-            self.tentacle_size = uniform(0.005, 0.01)
-            self.tentacle_length = log_uniform(1.5, 2.5)
             self.tentacle_bend_angle = uniform(0, np.pi / 12)
+            cap_dent_mag = uniform(0.15, 0.3)
 
-            self.cap_thickness = uniform(0.05, 0.6)
-            self.cap_inner_radius = uniform(0.6, 0.8)
-            self.cap_z_scale = log_uniform(0.4, 1.5)
-            self.cap_dent = uniform(0.15, 0.3) if uniform(0, 1) < 0.5 else 0
+            self.cap_inner_radius = params.cap_inner_radius
+            self.cap_z_scale = params.cap_z_scale
+            self.cap_thickness = params.cap_thickness
+            self.tentacle_length = params.tentacle_length
+            self.tentacle_size = params.tentacle_size
+            self.length_scale = params.length_scale
 
-            self.length_scale = log_uniform(0.25, 2.0)
             self.anim_freq = 1 / log_uniform(25, 100)
             self.move_freq = 1 / log_uniform(500, 1000)
+        if spawn_scope:
+            self._jellyfish_params = params
+        self.has_arm = params.has_arm
+        self.cap_dent = cap_dent_mag if params.has_cap_dent else 0
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, face_size, **params):
         obj, radius = self.build_cap(face_size)

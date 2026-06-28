@@ -46,7 +46,8 @@ class AgaveMonocotParameters(AssetParameters):
         float, Field(ge=0.392699, le=0.785398, json_schema_extra={"editable": True})
     ]
     cut_prob_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     cut_prob: Annotated[float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": True})] = (
         0.0
@@ -112,7 +113,7 @@ class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             (1, params.scale_curve_high),
         ]
         self.bud_angle = params.bud_angle
-        self.cut_prob = params.cut_prob
+        self.cut_prob = 0.0 if params.cut_prob_draw < 0.5 else params.cut_prob
         self.leaf_prob = params.leaf_prob
         self.z_scale = params.z_scale
         self.radius = 0.01

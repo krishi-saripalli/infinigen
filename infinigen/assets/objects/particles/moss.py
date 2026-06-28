@@ -25,11 +25,11 @@ from infinigen.core.util.color import hsv2rgba
 
 
 class MossParameters(AssetParameters):
-    base_hue: Annotated[float, Field(ge=0.2, le=0.24, json_schema_extra={"editable": True})]
+    base_hue: Annotated[float, Field(ge=0.2, le=0.24, json_schema_extra={"editable": False})]
     shader_hue_offset: Annotated[
-        float, Field(ge=-0.02, le=0.02, json_schema_extra={"editable": True})
+        float, Field(ge=-0.02, le=0.02, json_schema_extra={"editable": False})
     ] = 0.0
-    end_z: Annotated[float, Field(ge=0.04, le=0.05, json_schema_extra={"editable": True})] = (
+    end_z: Annotated[float, Field(ge=0.04, le=0.05, json_schema_extra={"editable": False})] = (
         0.045
     )
 

@@ -861,13 +861,13 @@ class SimpleBookcaseBaseFactory(AssetFactory):
 
 class SimpleBookcaseParameters(AssetParameters):
     dimension_depth: Annotated[
-        float, Field(ge=0.25, le=0.4, json_schema_extra={"editable": True})
+        float, Field(ge=0.25, le=0.4, json_schema_extra={"editable": False})
     ]
     dimension_width: Annotated[
         float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": True})
     ]
     dimension_height: Annotated[
-        float, Field(ge=0.7, le=0.9, json_schema_extra={"editable": True})
+        float, Field(ge=0.7, le=0.9, json_schema_extra={"editable": False})
     ]
 
 

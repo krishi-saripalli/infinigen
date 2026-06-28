@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
-import bpy
-import bmesh
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
+import bmesh
+import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.utils.autobevel import BevelSharp
@@ -34,10 +35,7 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
@@ -45,46 +43,141 @@ from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
-def _bathtub_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    inst.width = uniform(1.5, 2)
-    inst.size = uniform(0.8, 1)
-    inst.depth = uniform(0.55, 0.7)
-    prob = np.array([2, 2])
-    inst.bathtub_type = np.random.choice(
-        ["alcove", "freestanding"], p=prob / prob.sum()
-    )
-    inst.contour_fn = (
-        inst.make_corner_contour if inst.has_corner else inst.make_box_contour
-    )
-    inst.has_curve = uniform() < 0.5
-    inst.has_legs = uniform() < 0.5
-    inst.thickness = uniform(0.04, 0.08) if inst.has_base else uniform(0.02, 0.04)
-    inst.disp_x = uniform(0, 0.2, 2)
-    inst.disp_y = uniform(0, 0.1)
-    inst.leg_height = uniform(0.2, 0.3) * inst.depth
-    inst.leg_side = uniform(0.05, 0.1)
-    inst.leg_radius = uniform(0.02, 0.03)
-    inst.leg_y_scale = uniform()
-    inst.leg_subsurf_level = np.random.randint(3)
-    inst.taper_factor = uniform(-0.1, 0.1)
-    inst.stretch_factor = uniform(-0.2, 0.2)
-    inst.alcove_levels = np.random.randint(1, 3) if inst.has_base else 1
-    inst.levels = 5
-    inst.side_levels = 2
-    inst.is_hole_centered = False
-    inst.hole_radius = uniform(0.015, 0.02)
-    inst.surface_material_gen = weighted_sample(material_assignments.ceramics)
-    inst.leg_surface_material_gen = weighted_sample(material_assignments.metal_neutral)
-    inst.hole_surface_material_gen = weighted_sample(material_assignments.metal_neutral)
-    scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-    scratch, edge_wear = material_assignments.wear_tear
-    inst.scratch = None if uniform() > scratch_prob else scratch()
-    inst.edge_wear = None if uniform() > edge_wear_prob else edge_wear()
-    inst.beveler = BevelSharp(mult=5, segments=5)
+class BathtubParameters(AssetParameters):
+    width: Annotated[float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})]
+    size: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})]
+    depth: Annotated[float, Field(ge=0.55, le=0.7, json_schema_extra={"editable": False})]
+    bathtub_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["alcove", "freestanding"],
+            }
+        ),
+    ] = "alcove"
+    has_curve: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ]
+    has_legs: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    leg_height_ratio: Annotated[
+        float,
+        Field(
+            ge=0.2,
+            le=0.3,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    leg_side: Annotated[
+        float,
+        Field(
+            ge=0.05,
+            le=0.1,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    leg_radius: Annotated[
+        float,
+        Field(
+            ge=0.02,
+            le=0.03,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    leg_y_scale_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    leg_subsurf_level: Annotated[
+        int,
+        Field(
+            ge=0,
+            le=2,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    taper_factor: Annotated[
+        float,
+        Field(
+            ge=-0.1,
+            le=0.1,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    stretch_factor: Annotated[
+        float,
+        Field(
+            ge=-0.2,
+            le=0.2,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    scratch_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    edge_wear_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    leg_bevel_factor: Annotated[
+        float,
+        Field(
+            ge=0.3,
+            le=0.7,
+            json_schema_extra={"editable": False},
+        ),
+    ] = 0.5
+    freestanding_z_factor: Annotated[
+        float,
+        Field(
+            ge=0.5,
+            le=0.7,
+            json_schema_extra={"editable": False},
+        ),
+    ] = 0.6
+    hole_x_ratio: Annotated[
+        float,
+        Field(
+            ge=0.35,
+            le=0.4,
+            json_schema_extra={"editable": False},
+        ),
+    ] = 0.375
 
 
-class BathtubParameters(LegacyBridgeParameters):
-    pass
+def _init_bathtub_excluded(inst: BathtubFactory, seed: int, bathtub_type: str) -> None:
+    inst.bathtub_type = bathtub_type
+    with FixedSeed(seed):
+        inst.contour_fn = (
+            inst.make_corner_contour if inst.has_corner else inst.make_box_contour
+        )
+        inst.alcove_levels = np.random.randint(1, 3) if inst.has_base else 1
+        inst.thickness = (
+            uniform(0.04, 0.08) if inst.has_base else uniform(0.02, 0.04)
+        )
+        inst.surface_material_gen = weighted_sample(material_assignments.ceramics)
+        inst.leg_surface_material_gen = weighted_sample(material_assignments.metal_neutral)
+        inst.hole_surface_material_gen = weighted_sample(material_assignments.metal_neutral)
+        inst.beveler = BevelSharp(mult=5, segments=5)
+        inst.levels = 5
+        inst.side_levels = 2
+        inst.is_hole_centered = False
 
 
 class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
@@ -95,18 +188,72 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BathtubParameters:
-        return legacy_init_to_parameters(
-            BathtubParameters,
-            BathtubFactory,
-            seed,
-            self.coarse,
-            init_fn=_bathtub_legacy_init,
+        scratch_draw = uniform()
+        edge_wear_draw = uniform()
+        return BathtubParameters(
+            seed=seed,
+            width=uniform(1.5, 2),
+            size=uniform(0.8, 1),
+            depth=uniform(0.55, 0.7),
+            bathtub_type=str(np.random.choice(["alcove", "freestanding"])),
+            has_curve=bool(uniform() < 0.5),
+            has_legs=True,
+            leg_height_ratio=uniform(0.2, 0.3),
+            leg_side=uniform(0.05, 0.1),
+            leg_radius=uniform(0.02, 0.03),
+            leg_y_scale_draw=uniform(),
+            leg_subsurf_level=int(np.random.randint(0, 3)),
+            leg_bevel_factor=uniform(0.3, 0.7),
+            freestanding_z_factor=uniform(0.5, 0.7),
+            hole_x_ratio=uniform(0.35, 0.4),
+            taper_factor=uniform(-0.1, 0.1),
+            stretch_factor=uniform(-0.2, 0.2),
+            scratch_draw=scratch_draw,
+            edge_wear_draw=edge_wear_draw,
         )
+
+    def _sample_spawn_parameters(
+        self, params: BathtubParameters, seed: int, i: int
+    ) -> BathtubParameters:
+        return params
 
     def apply_parameters(
         self, params: BathtubParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        _init_bathtub_excluded(self, params.seed, params.bathtub_type)
+        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+        scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        self.width = params.width
+        self.size = params.size
+        self.depth = params.depth
+        # NOTE: disp_x0/disp_x1/disp_y sampled on self from seed; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.disp_x0 = uniform(0, 0.2)
+            self.disp_x1 = uniform(0, 0.2)
+            self.disp_y = uniform(0, 0.1)
+        self.disp_x = np.array([self.disp_x0, self.disp_x1])
+        self.has_curve = params.has_curve
+        self.has_legs = params.has_legs
+        self.leg_height = params.leg_height_ratio * params.depth
+        self.leg_side = params.leg_side
+        self.leg_radius = params.leg_radius
+        self.leg_y_scale = params.leg_y_scale_draw
+        self.leg_subsurf_level = params.leg_subsurf_level
+        self.taper_factor = params.taper_factor
+        self.stretch_factor = params.stretch_factor
+        # NOTE: hole_radius sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.hole_radius = uniform(0.015, 0.02)
+        self.scratch = (
+            None if params.scratch_draw > scratch_prob else scratch_fn()
+        )
+        self.edge_wear = (
+            None if params.edge_wear_draw > edge_wear_prob else edge_wear_fn()
+        )
+        self.leg_bevel_factor = params.leg_bevel_factor
+        self.freestanding_z_factor = params.freestanding_z_factor
+        self.hole_x_ratio = params.hole_x_ratio
+        self._use_fixed_spawn_draws = spawn_scope
 
     @property
     def has_base(self):
@@ -172,12 +319,17 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
             obj, "SIMPLE_DEFORM", deform_method="TAPER", angle=self.taper_factor
         )
         butil.modify_mesh(
-            obj, "SIMPLE_DEFORM", deform_method="STRETCH", angle=self.taper_factor
+            obj, "SIMPLE_DEFORM", deform_method="STRETCH", angle=self.stretch_factor
+        )
+        z_factor = (
+            self.freestanding_z_factor
+            if self._use_fixed_spawn_draws
+            else uniform(0.5, 0.7)
         )
         obj.location = (
             0,
             self.size / 2,
-            -np.min(read_co(obj)[:, -1]) * uniform(0.5, 0.7),
+            -np.min(read_co(obj)[:, -1]) * z_factor,
         )
         butil.apply_transform(obj, True)
         return obj
@@ -195,6 +347,11 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
         co, normal = read_center(obj), read_normal(obj)
         x, y, z = co.T
         leg_height = np.min(z) + self.leg_height
+        bevel_factor = (
+            self.leg_bevel_factor
+            if self._use_fixed_spawn_draws
+            else uniform(0.3, 0.7)
+        )
         for u in [1, -1]:
             for v in [1, -1]:
                 metric = np.where(z < leg_height, u * x + v * y, -np.inf)
@@ -216,7 +373,7 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
                     input_kwargs={"to_align_tilt": False},
                 )
                 butil.modify_mesh(
-                    leg, "BEVEL", width=self.leg_radius * uniform(0.3, 0.7)
+                    leg, "BEVEL", width=self.leg_radius * bevel_factor
                 )
                 leg.location[-1] = self.leg_radius
                 butil.apply_transform(leg, True)
@@ -279,9 +436,8 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
             (t + self.disp_y * i, self.width - t - self.disp_x[0] * i),
         ]
 
-    # noinspection PyArgumentList
     def make_base(self):
-        contour = self.contour_fn(0, 0)
+        contour = self.contour_fn(0, 1)
         obj = new_cylinder(vertices=len(contour))
         co = np.concatenate(
             [np.array([[x, y, 0], [x, y, self.depth]]) for x, y in contour]
@@ -289,14 +445,13 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
         write_co(obj, co)
         return obj
 
-    # noinspection PyArgumentList
     def make_bowl(self):
         if self.has_curve:
             lower = self.contour_fn(0, 1)
             upper = self.contour_fn(0, -1)
         else:
-            lower = self.contour_fn(0, 0)
-            upper = self.contour_fn(0, 0)
+            lower = self.contour_fn(0, 1)
+            upper = self.contour_fn(0, -1)
         obj = new_cylinder(vertices=len(lower))
         co = np.concatenate(
             [
@@ -310,14 +465,13 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
         subsurf(obj, levels)
         return obj
 
-    # noinspection PyArgumentList
     def make_cutter(self):
         if self.has_curve:
             lower = self.contour_fn(self.thickness, 1)
             upper = self.contour_fn(self.thickness, -1)
         else:
-            lower = self.contour_fn(self.thickness, 0)
-            upper = self.contour_fn(self.thickness, 0)
+            lower = self.contour_fn(self.thickness, 1)
+            upper = self.contour_fn(self.thickness, -1)
         obj = new_cylinder(vertices=len(lower))
         co = np.concatenate(
             [
@@ -348,7 +502,12 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
             case "alcove":
                 location = self.find_hole(obj)
             case "freestanding":
-                location = self.find_hole(obj, uniform(0.35, 0.4) * self.width)
+                hole_x = (
+                    self.hole_x_ratio * self.width
+                    if self._use_fixed_spawn_draws
+                    else uniform(0.35, 0.4) * self.width
+                )
+                location = self.find_hole(obj, hole_x)
             case _:
                 location = self.find_hole(obj, self.size / 2, self.size / 2)
         if self.is_hole_centered:

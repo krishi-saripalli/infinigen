@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -26,7 +26,10 @@ from infinigen.core import surface, tagging
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
@@ -1525,7 +1528,7 @@ class CellShelfBaseFactory(AssetFactory):
 
 class CellShelfParameters(AssetParameters):
     dimension_0: Annotated[
-        float, Field(ge=0.3, le=0.45, json_schema_extra={"editable": True})
+        float, Field(ge=0.3, le=0.45, json_schema_extra={"editable": False})
     ]
     dimension_1: Annotated[
         float, Field(ge=0.7, le=2.1, json_schema_extra={"editable": True})
@@ -1533,15 +1536,12 @@ class CellShelfParameters(AssetParameters):
     dimension_2: Annotated[
         float, Field(ge=0.35, le=2.1, json_schema_extra={"editable": True})
     ]
-    attachment_size: Annotated[
-        float, Field(ge=-0.01, le=0.11, json_schema_extra={"editable": True})
-    ]
-    division_thickness: Annotated[
-        float, Field(ge=0.0, le=0.03, json_schema_extra={"editable": True})
-    ]
-    external_thickness: Annotated[
-        float, Field(ge=0.025, le=0.055, json_schema_extra={"editable": True})
-    ]
+    has_base_frame: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = False
+    has_backboard: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = False
 
 
 class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
@@ -1585,42 +1585,51 @@ class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
             int(partial["Dimensions"][2] / partial["cell_size"]), 1
         )
         partial["depth"] = partial["Dimensions"][0]
-        partial["has_base_frame"] = False
+        partial["has_base_frame"] = params.has_base_frame
         partial["Dimensions"][2] = (
             partial["vertical_cell_num"] * partial["cell_size"]
         )
-        partial["attachment_size"] = params.attachment_size
-        partial["division_board_thickness"] = params.division_thickness
-        partial["external_board_thickness"] = params.external_thickness
-        partial["has_backboard"] = False
-        partial["base_leg_height"] = 0.0
-        partial["base_leg_size"] = 0.0
-        partial["base_material"] = "white"
-        partial["tag_support"] = True
         with FixedSeed(params.seed):
+            # NOTE: attachment_size, division_thickness, and external_thickness do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            partial["attachment_size"] = float(np.clip(normal(0.05, 0.02), 0.02, 0.1))
+            partial["division_board_thickness"] = float(
+                np.clip(normal(0.015, 0.005), 0.008, 0.022)
+            )
+            partial["external_board_thickness"] = float(
+                np.clip(normal(0.04, 0.005), 0.028, 0.052)
+            )
+            if params.has_base_frame:
+                partial["base_leg_height"] = float(
+                    np.clip(normal(0.174, 0.03), 0.1, 0.25)
+                )
+                partial["base_leg_size"] = float(
+                    np.clip(normal(0.035, 0.007), 0.02, 0.05)
+                )
+                partial["base_material"] = np.random.choice(
+                    ["black", "white"], p=[0.4, 0.6]
+                )
+            else:
+                partial["base_leg_height"] = 0.0
+                partial["base_leg_size"] = 0.0
+                partial["base_material"] = "white"
             partial["wood_material"] = np.random.choice(
                 ["black_wood", "white", "wood"], p=[0.3, 0.2, 0.5]
             )
-            return self.get_material_func(partial, randomness=True)
+        partial["has_backboard"] = params.has_backboard
+        partial["tag_support"] = True
+        return self.get_material_func(partial, randomness=True)
 
     def _sample_init_parameters(self, seed: int) -> CellShelfParameters:
         with FixedSeed(seed):
             partial = self._sample_dimension_params()
-            partial["attachment_size"] = np.clip(normal(0.05, 0.02), 0.02, 0.1)
-            partial["division_board_thickness"] = np.clip(
-                normal(0.015, 0.005), 0.008, 0.022
-            )
-            partial["external_board_thickness"] = np.clip(
-                normal(0.04, 0.005), 0.028, 0.052
-            )
+            has_base_frame = bool(np.random.choice([True, False], p=[0.4, 0.6]))
         return CellShelfParameters(
             seed=seed,
             dimension_0=partial["Dimensions"][0],
             dimension_1=partial["Dimensions"][1],
             dimension_2=partial["Dimensions"][2],
-            attachment_size=partial["attachment_size"],
-            division_thickness=partial["division_board_thickness"],
-            external_thickness=partial["external_board_thickness"],
+            has_base_frame=has_base_frame,
+            has_backboard=False,
         )
 
     def apply_parameters(
@@ -1649,6 +1658,9 @@ class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
 
 
 class TVStandParameters(CellShelfParameters):
+    dimension_0: Annotated[
+        float, Field(ge=0.3, le=0.45, json_schema_extra={"editable": False})
+    ]
     dimension_2: Annotated[
         float, Field(ge=0.3, le=2.1, json_schema_extra={"editable": True})
     ]
@@ -1664,6 +1676,7 @@ class TVStandFactory(CellShelfFactory):
     def apply_parameters(
         self, params: TVStandParameters, *, spawn_scope: bool = True
     ) -> None:
+        # NOTE: dimension_0 (depth) effect is quantized by cell_size grid rounding; excluded from quartet sampling.
         super().apply_parameters(params, spawn_scope=spawn_scope)
 
     @staticmethod

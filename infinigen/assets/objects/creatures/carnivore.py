@@ -24,7 +24,10 @@ from infinigen.assets.objects.creatures.util.creature_util import offset_center
 from infinigen.assets.objects.creatures.util.genome import Joint
 from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import clip_gaussian
 from infinigen.core.util.random import weighted_sample
@@ -45,7 +48,7 @@ class CarnivoreCreatureParams(BaseModel):
 
     hair: CarnivoreHairParams
     body_theta_scale: Annotated[float, Field(ge=0.7, le=1.3)]
-    use_carnivore_head: bool
+    use_carnivore_head: bool = False
     head_length_rad1_rad2: tuple[float, float, float]
     jaw_coord: tuple[float, float, float]
     jaw_rest_y: Annotated[float, Field(ge=10.0, le=35.0)]
@@ -95,7 +98,7 @@ def sample_creature_params() -> CarnivoreCreatureParams:
             "IOR": 1.55,
         },
     )
-    use_carnivore_head = U() < 0.5
+    use_carnivore_head = False
     if use_carnivore_head:
         head_length_rad1_rad2 = tuple(
             (np.array((0.36, 0.20, 0.18)) * N(1, 0.1, 3)).tolist()
@@ -296,6 +299,25 @@ def tiger_genome(params: CarnivoreCreatureParams):
 
 
 class CarnivoreParameters(AssetParameters):
+    body_theta_scale: Annotated[
+        float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": False})
+    ]
+    jaw_rest_y: Annotated[
+        float, Field(ge=10.0, le=35.0, json_schema_extra={"editable": False})
+    ]
+    # NOTE: only applies when use_carnivore_head=True.
+    eye_radius: Annotated[
+        float, Field(ge=0.0, le=0.06, json_schema_extra={"editable": False})
+    ]
+    neck_rest_y: Annotated[
+        float, Field(ge=5.0, le=35.0, json_schema_extra={"editable": False})
+    ]
+    shoulder_splay: Annotated[
+        float, Field(ge=90.0, le=130.0, json_schema_extra={"editable": False})
+    ]
+    nurbs_head_var: Annotated[
+        float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": True})
+    ]
     creature: CarnivoreCreatureParams
 
 
@@ -335,7 +357,17 @@ class CarnivoreFactory(ParameterizedAssetFactory, AssetFactory):
             self._teeth_material,
             self._nose_material,
         ) = self._sample_materials()
-        return CarnivoreParameters(seed=seed, creature=sample_creature_params())
+        creature = sample_creature_params()
+        return CarnivoreParameters(
+            seed=seed,
+            body_theta_scale=creature.body_theta_scale,
+            jaw_rest_y=creature.jaw_rest_y,
+            eye_radius=creature.eye_radius,
+            neck_rest_y=creature.neck_rest_y,
+            shoulder_splay=creature.shoulder_splay,
+            nurbs_head_var=creature.nurbs_head_var,
+            creature=creature,
+        )
 
     def apply_parameters(
         self, params: CarnivoreParameters, *, spawn_scope: bool = True
@@ -352,7 +384,16 @@ class CarnivoreFactory(ParameterizedAssetFactory, AssetFactory):
                 self._teeth_material,
                 self._nose_material,
             ) = self._sample_materials()
-        self.creature_params = params.creature
+        self.creature_params = params.creature.model_copy(
+            update={
+                "body_theta_scale": params.body_theta_scale,
+                "jaw_rest_y": params.jaw_rest_y,
+                "eye_radius": params.eye_radius,
+                "neck_rest_y": params.neck_rest_y,
+                "shoulder_splay": params.shoulder_splay,
+                "nurbs_head_var": params.nurbs_head_var,
+            }
+        )
         self.body_material = self._body_material
         self.tongue_material = self._tongue_material
         self.teeth_material = self._teeth_material

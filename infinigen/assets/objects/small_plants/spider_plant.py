@@ -379,10 +379,10 @@ def geometry_spider_plant_nodes(nw: NodeWrangler, **kwargs):
 
 
 class SpiderPlantParameters(AssetParameters):
-    num_leaf_versions: Annotated[int, Field(ge=4, le=7, json_schema_extra={"editable": True})]
-    num_plant_bases: Annotated[int, Field(ge=5, le=11, json_schema_extra={"editable": True})]
+    num_leaf_versions: Annotated[int, Field(ge=4, le=7, json_schema_extra={"editable": False})]
+    num_plant_bases: Annotated[int, Field(ge=5, le=11, json_schema_extra={"editable": False})]
     init_base_radius: Annotated[
-        float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})
+        float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": False})
     ]
 
 

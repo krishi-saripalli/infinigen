@@ -11,9 +11,9 @@ import numpy as np
 from numpy.random import uniform
 from pydantic import Field
 
-from infinigen.assets.composition import material_assignments
 import infinigen.assets.materials.ceramic
 import infinigen.assets.materials.fluid
+from infinigen.assets.composition import material_assignments
 from infinigen.assets.objects import (
     cactus,
     corals,
@@ -25,14 +25,20 @@ from infinigen.assets.objects import (
 from infinigen.assets.utils.decorate import read_co, write_attribute
 from infinigen.assets.utils.object import join_objects, new_bbox, new_cube, new_plane
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class AquariumTankParameters(AssetParameters):
-    is_wet_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
+    is_wet_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ]
     width: Annotated[float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})]
     depth: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})]
     height: Annotated[float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})]
@@ -113,6 +119,14 @@ class AquariumTankFactory(ParameterizedAssetFactory, AssetFactory):
             self.height,
         )
 
+    def _create_base_object(self, **params) -> bpy.types.Object:
+        asset_index = params.get("i", self.factory_seed)
+        factory = self.base_factory
+        spawn_params = {k: v for k, v in params.items() if k != "i"}
+        if isinstance(factory, ParameterizedAssetFactory) and factory._needs_placeholder():
+            return factory.spawn_asset(i=asset_index, **spawn_params)
+        return factory.create_asset(**params)
+
     def create_asset(self, **params) -> bpy.types.Object:
         tank = new_cube(location=(1, 1, 1))
         butil.apply_transform(tank, loc=True)
@@ -122,7 +136,7 @@ class AquariumTankFactory(ParameterizedAssetFactory, AssetFactory):
         write_attribute(tank, 1, "glass", "FACE")
         parts = [tank]
         parts.extend(self.make_belts())
-        base_obj = self.base_factory.create_asset(**params)
+        base_obj = self._create_base_object(**params)
         co = read_co(base_obj)
         x_min, x_max = np.amin(co, 0), np.amax(co, 0)
         scale = (

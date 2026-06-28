@@ -99,7 +99,7 @@ class BeverageFridgeFactory(ParameterizedAssetFactory, AssetFactory):
             Width=geometry["Width"],
             Height=geometry["Height"],
             DoorThickness=geometry["DoorThickness"],
-            RackRadius=geometry["RackRadius"],
+            RackRadius=min(0.02, geometry["RackRadius"]),
             RackHAmount=geometry["RackHAmount"],
             RackDAmount=geometry["RackDAmount"],
         )

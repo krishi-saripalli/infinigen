@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 import infinigen.core.util.blender as butil
 from infinigen.assets.objects.creatures.util.animation.driver_repeated import (
@@ -21,54 +22,44 @@ from infinigen.assets.utils.misc import assign_material
 from infinigen.assets.utils.object import join_objects, origin2leftmost
 from infinigen.core.nodes.node_wrangler import NodeWrangler
 from infinigen.core.placement.detail import remesh_with_attrs
-from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
+from infinigen.core.surface import shaderfunc_to_material
+from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
-def _monocot_base_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    base = MonocotGrowthFactory.__new__(MonocotGrowthFactory)
-    AssetFactory.__init__(base, seed, coarse)
-    MonocotGrowthFactory.__init__(base, seed, coarse)
-    for key, value in vars(base).items():
-        if key not in ("factory_seed", "coarse"):
-            setattr(inst, key, value)
-
-
-def _kelp_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    _monocot_base_legacy_init(inst, seed, coarse)
-    inst.stem_offset = 10.0
-    inst.angle = uniform(np.pi / 6, np.pi / 4)
-    inst.z_drag = uniform(0.0, 0.2)
-    inst.min_y_angle = uniform(0, np.pi * 0.1)
-    inst.max_y_angle = inst.min_y_angle
-    inst.bend_angle = uniform(0, np.pi / 6)
-    inst.twist_angle = uniform(0, np.pi / 6)
-    inst.count = 512
-    inst.leaf_prob = uniform(0.6, 0.7)
-    inst.align_angle = uniform(np.pi / 30, np.pi / 15)
-    inst.radius = 0.02
-    inst.align_factor = inst.make_align_factor()
-    inst.align_direction = inst.make_align_direction()
-    flow_angle = uniform(0, np.pi * 2)
-    inst.align_direction = (
-        np.cos(flow_angle),
-        np.sin(flow_angle),
-        uniform(-0.2, 0.2),
-    )
-    inst.anim_freq = 1 / log_uniform(100, 200)
-    inst.anim_offset = uniform(0, 1)
-    inst.anim_seed = np.random.randint(1e5)
-
-
-class KelpMonocotParameters(LegacyBridgeParameters):
-    pass
+class KelpMonocotParameters(AssetParameters):
+    angle: Annotated[float, Field(ge=0.523599, le=0.785398, json_schema_extra={"editable": True})]
+    z_drag: Annotated[float, Field(ge=0.0, le=0.2, json_schema_extra={"editable": True})]
+    min_y_angle: Annotated[
+        float, Field(ge=0.0, le=0.314159, json_schema_extra={"editable": True})
+    ]
+    bend_angle: Annotated[
+        float, Field(ge=0.0, le=0.523599, json_schema_extra={"editable": True})
+    ]
+    twist_angle: Annotated[
+        float, Field(ge=0.0, le=0.523599, json_schema_extra={"editable": True})
+    ]
+    leaf_prob: Annotated[float, Field(ge=0.6, le=0.7, json_schema_extra={"editable": True})]
+    flow_angle: Annotated[
+        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": True})
+    ]
+    align_direction_z: Annotated[
+        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": True})
+    ]
+    anim_period: Annotated[
+        float, Field(ge=100.0, le=200.0, json_schema_extra={"editable": True})
+    ]
+    anim_offset: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    ]
+    anim_seed: Annotated[int, Field(ge=0, le=100000, json_schema_extra={"editable": True})]
+    base_hue: Annotated[float, Field(ge=0.05, le=0.25, json_schema_extra={"editable": True})]
+    z_scale: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
 
 
 class KelpMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -81,18 +72,64 @@ class KelpMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> KelpMonocotParameters:
-        return legacy_init_to_parameters(
-            KelpMonocotParameters,
-            KelpMonocotFactory,
-            seed,
-            self.coarse,
-            init_fn=_kelp_legacy_init,
+        base_hue = uniform(0.05, 0.25)
+        z_scale = uniform(1.0, 1.2)
+        bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
+        dark_color = hsv2rgba(
+            (base_hue + uniform(-0.03, 0.03)) % 1,
+            uniform(0.8, 1.0),
+            log_uniform(0.05, 0.2),
+        )
+        self.material = shaderfunc_to_material(
+            self.shader_monocot, dark_color, bright_color, self.use_distance
+        )
+        return KelpMonocotParameters(
+            seed=seed,
+            angle=uniform(np.pi / 6, np.pi / 4),
+            z_drag=uniform(0.0, 0.2),
+            min_y_angle=uniform(0, np.pi * 0.1),
+            bend_angle=uniform(0, np.pi / 6),
+            twist_angle=uniform(0, np.pi / 6),
+            leaf_prob=uniform(0.6, 0.7),
+            flow_angle=uniform(0, np.pi * 2),
+            align_direction_z=uniform(-0.2, 0.2),
+            anim_period=log_uniform(100, 200),
+            anim_offset=uniform(0, 1),
+            anim_seed=int(np.random.randint(1e5)),
+            base_hue=base_hue,
+            z_scale=z_scale,
         )
 
     def apply_parameters(
         self, params: KelpMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            self.align_angle = uniform(np.pi / 30, np.pi / 15)
+        self.stem_offset = 10.0
+        self.angle = params.angle
+        self.z_drag = params.z_drag
+        self.min_y_angle = params.min_y_angle
+        self.max_y_angle = params.min_y_angle
+        self.bend_angle = params.bend_angle
+        self.twist_angle = params.twist_angle
+        self.count = 512
+        self.leaf_prob = params.leaf_prob
+        self.radius = 0.02
+        self.leaf_range = (0, 1)
+        self.scale_curve = [(0, 1), (1, 1)]
+        self.perturb = 0.05
+        self.z_scale = params.z_scale
+        self.base_hue = params.base_hue
+        self.align_direction = (
+            np.cos(params.flow_angle),
+            np.sin(params.flow_angle),
+            params.align_direction_z,
+        )
+        self.anim_freq = 1 / params.anim_period
+        self.anim_offset = params.anim_offset
+        self.anim_seed = params.anim_seed
+        self.align_factor = self.make_align_factor()
+        self._use_fixed_spawn_draws = spawn_scope
 
     def make_align_factor(self):
         def align_factor(nw: NodeWrangler):

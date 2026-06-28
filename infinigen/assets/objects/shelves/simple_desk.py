@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import normal, uniform
+from pydantic import Field
 
 from infinigen.assets.materials.wood.plywood import (
     shader_shelves_black_metallic,
@@ -24,11 +25,9 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -407,8 +406,13 @@ def _simple_desk_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
     inst.params = inst.sample_params()
 
 
-class SimpleDeskParameters(LegacyBridgeParameters):
-    pass
+class SimpleDeskParameters(AssetParameters):
+    depth: Annotated[float, Field(ge=0.45, le=0.75, json_schema_extra={"editable": False})]
+    width: Annotated[float, Field(ge=0.7, le=2.0, json_schema_extra={"editable": True})]
+    height: Annotated[float, Field(ge=0.6, le=0.83, json_schema_extra={"editable": True})]
+    leg_radius: Annotated[float, Field(ge=0.01, le=0.025, json_schema_extra={"editable": True})]
+    leg_dist: Annotated[float, Field(ge=0.035, le=0.07, json_schema_extra={"editable": True})]
+    thickness: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": False})]
 
 
 class SimpleDeskFactory(ParameterizedAssetFactory, SimpleDeskBaseFactory):
@@ -420,18 +424,31 @@ class SimpleDeskFactory(ParameterizedAssetFactory, SimpleDeskBaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> SimpleDeskParameters:
-        return legacy_init_to_parameters(
-            SimpleDeskParameters,
-            SimpleDeskFactory,
-            seed,
-            self.coarse,
-            init_fn=_simple_desk_legacy_init,
+        return SimpleDeskParameters(
+            seed=seed,
+            depth=uniform(0.5, 0.75),
+            width=uniform(0.8, 2.0),
+            height=uniform(0.6, 0.8),
+            leg_radius=uniform(0.01, 0.025),
+            leg_dist=uniform(0.035, 0.07),
+            thickness=uniform(0.01, 0.03),
         )
 
     def apply_parameters(
         self, params: SimpleDeskParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            SimpleDeskBaseFactory.__init__(self, params.seed, {}, self.coarse)
+            # NOTE: depth and thickness feed desk top geometry; effect depends on sampled leg/support layout.
+            self.params = {
+                "depth": params.depth,
+                "width": params.width,
+                "height": params.height,
+                "leg_radius": params.leg_radius,
+                "leg_dist": params.leg_dist,
+                "thickness": params.thickness,
+            }
+        self._use_fixed_spawn_draws = spawn_scope
 
     def sample_params(self):
         stored = getattr(self, "params", None)
@@ -445,10 +462,49 @@ class SimpleDeskFactory(ParameterizedAssetFactory, SimpleDeskBaseFactory):
         return params
 
 
-class SidetableDeskFactory(SimpleDeskBaseFactory):
-    def sample_params(self):
-        params = dict()
+class SidetableDeskParameters(AssetParameters):
+    base_size: Annotated[
+        float, Field(ge=0.44, le=0.66, json_schema_extra={"editable": False})
+    ]
+    height_ratio: Annotated[
+        float, Field(ge=0.9, le=1.1, json_schema_extra={"editable": True})
+    ]
+
+
+class SidetableDeskFactory(ParameterizedAssetFactory, SimpleDeskBaseFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = SidetableDeskParameters
+
+    def __init__(self, factory_seed, params={}, coarse=False):
+        AssetFactory.__init__(self, factory_seed, coarse=coarse)
+        self.params = params
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> SidetableDeskParameters:
         w = 0.55 * normal(1, 0.1)
+        return SidetableDeskParameters(
+            seed=seed,
+            base_size=float(np.clip(w, 0.44, 0.66)),
+            height_ratio=float(np.clip(normal(1, 0.05), 0.9, 1.1)),
+        )
+
+    def apply_parameters(
+        self, params: SidetableDeskParameters, *, spawn_scope: bool = True
+    ) -> None:
+        w = params.base_size
+        h = w * params.height_ratio
+        self.params = {
+            "depth": w,
+            "width": w,
+            "height": h,
+        }
+        self._use_fixed_spawn_draws = spawn_scope
+
+    def sample_params(self):
+        stored = getattr(self, "params", None)
+        if isinstance(stored, dict) and stored:
+            return dict(stored)
+        w = 0.55 * normal(1, 0.1)
+        params = dict()
         params["Dimensions"] = (w, w, w * normal(1, 0.05))
         params["depth"] = params["Dimensions"][0]
         params["width"] = params["Dimensions"][1]

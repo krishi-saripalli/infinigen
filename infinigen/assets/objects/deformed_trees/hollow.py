@@ -5,11 +5,19 @@
 # Authors: Lingjie Mei
 
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
-from infinigen.assets.objects.deformed_trees.base import BaseDeformedTreeFactory
+from infinigen.assets.objects.deformed_trees.base import (
+    BaseDeformedTreeFactory,
+    BaseDeformedTreeParameters,
+)
 from infinigen.assets.utils.decorate import (
     read_co,
     read_material_index,
@@ -21,14 +29,50 @@ from infinigen.assets.utils.object import join_objects
 from infinigen.core import surface
 from infinigen.core.nodes.node_info import Nodes
 from infinigen.core.nodes.node_wrangler import NodeWrangler
+from infinigen.core.placement.parameters import AssetParameters
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj, select_none
 
 
+class HollowTreeParameters(BaseDeformedTreeParameters):
+    hollow_noise_scale: Annotated[
+        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
+    ]
+    hollow_threshold: Annotated[
+        float, Field(ge=0.36, le=0.4, json_schema_extra={"editable": True})
+    ]
+    texture_musgrave_scale: Annotated[
+        float, Field(ge=10.0, le=20.0, json_schema_extra={"editable": True})
+    ]
+    texture_displacement: Annotated[
+        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": True})
+    ]
+
+
 class HollowTreeFactory(BaseDeformedTreeFactory):
-    @staticmethod
-    def geo_texture(nw: NodeWrangler, material_index):
+    parameters_model: ClassVar[type[AssetParameters]] = HollowTreeParameters
+
+    def _sample_init_parameters(self, seed: int) -> HollowTreeParameters:
+        base = super()._sample_init_parameters(seed)
+        return HollowTreeParameters(
+            **base.model_dump(),
+            hollow_noise_scale=uniform(0.8, 1.0),
+            hollow_threshold=uniform(0.36, 0.4),
+            texture_musgrave_scale=uniform(10, 20),
+            texture_displacement=uniform(0.03, 0.06),
+        )
+
+    def apply_parameters(
+        self, params: HollowTreeParameters, *, spawn_scope: bool = True
+    ) -> None:
+        super().apply_parameters(params, spawn_scope=spawn_scope)
+        self.hollow_noise_scale = params.hollow_noise_scale
+        self.hollow_threshold = params.hollow_threshold
+        self.texture_musgrave_scale = params.texture_musgrave_scale
+        self.texture_displacement = params.texture_displacement
+
+    def geo_texture(self, nw: NodeWrangler, material_index):
         geometry = nw.new_node(
             Nodes.GroupInput, expose_input=[("NodeSocketGeometry", "Geometry", None)]
         )
@@ -36,7 +80,9 @@ class HollowTreeFactory(BaseDeformedTreeFactory):
             "EQUAL", nw.new_node(Nodes.MaterialIndex), material_index
         )
         offset = nw.scale(
-            nw.scalar_multiply(nw.musgrave(uniform(10, 20)), -uniform(0.03, 0.06)),
+            nw.scalar_multiply(
+                nw.musgrave(self.texture_musgrave_scale), -self.texture_displacement
+            ),
             nw.new_node(Nodes.InputNormal),
         )
         geometry = nw.new_node(Nodes.SetPosition, [geometry, selection, None, offset])
@@ -54,8 +100,8 @@ class HollowTreeFactory(BaseDeformedTreeFactory):
 
     def create_asset(self, i, distance=0, **params):
         obj = self.build_tree(i, distance, **params)
-        scale = uniform(0.8, 1.0)
-        threshold = uniform(0.36, 0.4)
+        scale = self.hollow_noise_scale
+        threshold = self.hollow_threshold
 
         def selection(nw: NodeWrangler):
             x, y, z = nw.separate(nw.new_node(Nodes.InputPosition))

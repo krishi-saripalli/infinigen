@@ -4,11 +4,12 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.utils.decorate import read_center, subsurf, write_co
@@ -18,56 +19,57 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
-def _lid_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    inst.x_length = uniform(0.08, 0.15)
-    inst.z_height = inst.x_length * uniform(0, 0.5)
-    inst.thickness = uniform(0.003, 0.005)
-    inst.is_glass = uniform() < 0.5
-    inst.hardware_type = None
-    inst.rim_height = uniform(1, 2) * inst.thickness
-    inst.handle_type = np.random.choice(["handle", "knob"])
-    if inst.handle_type == "knob":
-        inst.handle_height = inst.x_length * uniform(0.1, 0.15)
-    else:
-        inst.handle_height = inst.x_length * uniform(0.2, 0.25)
-    inst.handle_radius = inst.x_length * uniform(0.15, 0.25)
-    inst.handle_width = inst.x_length * uniform(0.25, 0.3)
-    inst.handle_subsurf_level = np.random.randint(0, 3)
-
-    if inst.is_glass:
-        surface_gen_class = weighted_sample(
-            material_assignments.appliance_front_maybeglass
-        )
-    else:
-        surface_gen_class = weighted_sample(material_assignments.decorative_hard)
-
-    inst.surface_material_gen = surface_gen_class()
-
-    rim_surface_gen_class = weighted_sample(material_assignments.metals)
-    inst.rim_surface_material_gen = rim_surface_gen_class()
-
-    handle_surface_gen_class = weighted_sample(material_assignments.decorative_hard)
-    inst.handle_surface_material_gen = handle_surface_gen_class()
-
-    scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-    scratch, edge_wear = material_assignments.wear_tear
-
-    inst.scratch = None if uniform() > scratch_prob else scratch()
-    inst.edge_wear = None if uniform() > edge_wear_prob else edge_wear()
-
-
-class LidParameters(LegacyBridgeParameters):
-    pass
-
+class LidParameters(AssetParameters):
+    x_length: Annotated[float, Field(ge=0.08, le=0.15, json_schema_extra={"editable": False})]
+    z_height_ratio: Annotated[
+        float, Field(ge=0.0, le=0.5, json_schema_extra={"editable": True})
+    ]
+    is_glass: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    scratch_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    edge_wear_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ]
+    # NOTE: only affects handle path when handle_type=handle (sampled at init).
+    handle_height_ratio: Annotated[
+        float, Field(ge=0.1, le=0.25, json_schema_extra={"editable": False})
+    ] = 0.15
+    handle_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["handle", "knob"],
+            }
+        ),
+    ] = "handle"
+    z_anchor_frac: Annotated[
+        float, Field(ge=0.7, le=0.8, json_schema_extra={"editable": True})
+    ] = 0.75
+    handle_subsurf_level: Annotated[
+        int, Field(ge=0, le=2, json_schema_extra={"editable": True})
+    ] = 1
 
 class LidFactory(ParameterizedAssetFactory, AssetFactory):
     parameters_model: ClassVar[type[AssetParameters]] = LidParameters
@@ -76,27 +78,90 @@ class LidFactory(ParameterizedAssetFactory, AssetFactory):
         super(LidFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_materials(self, seed: int, is_glass: bool) -> None:
+        with FixedSeed(seed):
+            if is_glass:
+                surface_gen_class = weighted_sample(
+                    material_assignments.appliance_front_maybeglass
+                )
+            else:
+                surface_gen_class = weighted_sample(material_assignments.decorative_hard)
+            self.surface_material_gen = surface_gen_class()
+            rim_surface_gen_class = weighted_sample(material_assignments.metals)
+            self.rim_surface_material_gen = rim_surface_gen_class()
+            handle_surface_gen_class = weighted_sample(material_assignments.decorative_hard)
+            self.handle_surface_material_gen = handle_surface_gen_class()
+
     def _sample_init_parameters(self, seed: int) -> LidParameters:
-        return legacy_init_to_parameters(
-            LidParameters,
-            LidFactory,
-            seed,
-            self.coarse,
-            init_fn=_lid_legacy_init,
+        x_length = uniform(0.08, 0.15)
+        is_glass = True
+        self._sample_materials(seed, True)
+        handle_type = "handle"
+        return LidParameters(
+            seed=seed,
+            x_length=x_length,
+            z_height_ratio=uniform(0, 0.5),
+            is_glass=is_glass,
+            scratch_draw=uniform(),
+            edge_wear_draw=uniform(),
+            handle_type=handle_type,
+            handle_height_ratio=uniform(0.1, 0.15),
+            z_anchor_frac=uniform(0.7, 0.8),
+            handle_subsurf_level=int(np.random.randint(0, 3)),
+        )
+
+    def _sample_spawn_parameters(
+        self, params: LidParameters, seed: int, i: int
+    ) -> LidParameters:
+        return params.model_copy(
+            update={
+                "z_anchor_frac": uniform(0.7, 0.8),
+                "handle_subsurf_level": int(np.random.randint(0, 3)),
+            }
         )
 
     def apply_parameters(
         self, params: LidParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        is_glass = params.is_glass
+        self._sample_materials(params.seed, is_glass)
+        self.handle_type = params.handle_type
+        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+        scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        self.scratch = None if params.scratch_draw > scratch_prob else scratch_fn()
+        self.edge_wear = None if params.edge_wear_draw > edge_wear_prob else edge_wear_fn()
+        self.x_length = params.x_length
+        self.z_height = params.x_length * params.z_height_ratio
+        # NOTE: thickness sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.thickness = uniform(0.003, 0.005)
+        self.is_glass = is_glass
+        self.hardware_type = None
+        # NOTE: rim_height_mult, handle_radius_ratio, and handle_width_ratio do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.rim_height_mult = uniform(1, 2)
+            self.handle_radius_ratio = uniform(0.15, 0.25)
+            self.handle_width_ratio = uniform(0.25, 0.3)
+        self.rim_height = self.rim_height_mult * self.thickness
+        self.handle_height = params.x_length * params.handle_height_ratio
+        self.handle_radius = params.x_length * self.handle_radius_ratio
+        self.handle_width = params.x_length * self.handle_width_ratio
+        self._z_anchor_frac = params.z_anchor_frac
+        self._handle_subsurf_level = params.handle_subsurf_level
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:
         self.surface = self.surface_material_gen()
         self.rim_surface = self.rim_surface_material_gen()
         self.handle_surface = self.handle_surface_material_gen()
 
+        z_mid = (
+            self._z_anchor_frac
+            if self._use_fixed_spawn_draws
+            else uniform(0.7, 0.8)
+        )
         x_anchors = 0, 0.01, self.x_length / 2, self.x_length
-        z_anchors = self.z_height, self.z_height, self.z_height * uniform(0.7, 0.8), 0
+        z_anchors = self.z_height, self.z_height, self.z_height * z_mid, 0
         obj = spin((x_anchors, 0, z_anchors))
         butil.modify_mesh(obj, "SOLIDIFY", thickness=self.thickness, offset=0)
         butil.modify_mesh(obj, "BEVEL", width=self.thickness / 2, segments=4)
@@ -146,7 +211,7 @@ class LidFactory(ParameterizedAssetFactory, AssetFactory):
                 ]
             ),
         )
-        subsurf(obj, self.handle_subsurf_level)
+        subsurf(obj, self._handle_subsurf_level)
         butil.select_none()
         with butil.ViewportMode(obj, "EDIT"):
             bpy.ops.mesh.select_mode(type="EDGE")

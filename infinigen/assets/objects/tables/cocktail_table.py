@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 from numpy.random import choice, uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.objects.tables.legs.single_stand import (
@@ -32,12 +33,10 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.surface import NoApply
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
@@ -210,18 +209,16 @@ def geometry_assemble_table(nw: NodeWrangler, **kwargs):
     )
 
 
-class TableCocktailParameters(LegacyBridgeParameters):
-    pass
-
-
-def _table_cocktail_legacy_init(
-    inst: TableCocktailFactory, seed: int, coarse: bool, dimensions=None
-) -> None:
-    inst.dimensions = dimensions
-    inst.params = TableCocktailFactory.sample_parameters(dimensions)
-    inst.clothes_scatter = NoApply()
-    inst.material_params, inst.scratch, inst.edge_wear = inst.get_material_params()
-    inst.params.update(inst.material_params)
+class TableCocktailParameters(AssetParameters):
+    top_thickness: Annotated[
+        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": False})
+    ]
+    strecher_increament: Annotated[
+        int,
+        Field(
+            json_schema_extra={"editable": False, "kind": "enum", "choices": [0, 1, 2]}
+        ),
+    ] = 1
 
 
 class TableCocktailFactory(ParameterizedAssetFactory, AssetFactory):
@@ -232,106 +229,137 @@ class TableCocktailFactory(ParameterizedAssetFactory, AssetFactory):
         super(TableCocktailFactory, self).__init__(factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> TableCocktailParameters:
-        return legacy_init_to_parameters(
-            TableCocktailParameters,
-            TableCocktailFactory,
-            seed,
-            self.coarse,
-            self._dimensions,
-            init_fn=_table_cocktail_legacy_init,
-        )
+    def _sample_materials(self, seed: int) -> tuple[dict[str, Any], Any | None, Any | None]:
+        with FixedSeed(seed):
+            material_params = {
+                "TopMaterial": weighted_sample(material_assignments.table_top)(),
+                "LegMaterial": weighted_sample(material_assignments.tableware)(),
+            }
+            wrapped_params = {k: v() for k, v in material_params.items()}
+            scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+            scratch_fn, edge_wear_fn = material_assignments.wear_tear
+            scratch = None if uniform() > scratch_prob else scratch_fn()
+            edge_wear = None if uniform() > edge_wear_prob else edge_wear_fn()
+            return wrapped_params, scratch, edge_wear
 
-    def apply_parameters(
-        self, params: TableCocktailParameters, *, spawn_scope: bool = True
-    ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
-
-    def get_material_params(self):
-        params = {
-            "TopMaterial": weighted_sample(material_assignments.table_top)(),
-            "LegMaterial": weighted_sample(material_assignments.tableware)(),
-        }
-        wrapped_params = {k: v() for k, v in params.items()}
-
-        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-        scratch, edge_wear = material_assignments.wear_tear
-        scratch = None if uniform() > scratch_prob else scratch()
-        edge_wear = None if uniform() > edge_wear_prob else edge_wear()
-
-        return wrapped_params, scratch, edge_wear
-
-    @staticmethod
-    def sample_parameters(dimensions):
-        # all in meters
-        if dimensions is None:
-            x = uniform(0.5, 0.8)
-            z = uniform(1.0, 1.5)
-            dimensions = (x, x, z)
-
-        x, y, z = dimensions
-
-        NGon = choice([4, 32])
-        if NGon >= 32:
-            round_table = True
-        else:
-            round_table = False
-
+    def _sample_geometry_spawn_state(self, x: float) -> dict[str, Any]:
+        n_gon = choice([4, 32])
+        round_table = n_gon >= 32
         leg_style = choice(["straight", "single_stand"])
         if leg_style == "single_stand":
             leg_number = 1
             leg_diameter = uniform(0.7 * x, 0.9 * x)
-
             leg_curve_ctrl_pts = [
                 (0.0, uniform(0.1, 0.2)),
                 (0.5, uniform(0.1, 0.2)),
                 (0.9, uniform(0.2, 0.3)),
                 (1.0, 1.0),
             ]
-
         elif leg_style == "straight":
             leg_diameter = uniform(0.05, 0.07)
-
-            if round_table:
-                leg_number = choice([3, 4])
-            else:
-                leg_number = NGon
-
+            leg_number = choice([3, 4]) if round_table else n_gon
             leg_curve_ctrl_pts = [
                 (0.0, 1.0),
                 (0.4, uniform(0.85, 0.95)),
                 (1.0, uniform(0.4, 0.6)),
             ]
-
         else:
             raise NotImplementedError
+        return {
+            "round_table": round_table,
+            "leg_style": leg_style,
+            "leg_number": leg_number,
+            "leg_diameter": leg_diameter,
+            "leg_curve_ctrl_pts": leg_curve_ctrl_pts,
+            "leg_ngon": choice([4, 32]),
+            "top_profile_fillet_ratio": 0.499 if round_table else uniform(0.0, 0.05),
+        }
 
-        top_thickness = uniform(0.02, 0.05)
-
-        parameters = {
+    def _build_geometry_params(
+        self, params: TableCocktailParameters, spawn: dict[str, Any]
+    ) -> dict[str, Any]:
+        if self._dimensions is not None:
+            x, _, height = self._dimensions
+        else:
+            x = self._x
+            height = self.height
+        round_table = spawn["round_table"]
+        return {
             "Top Profile N-gon": 32 if round_table else 4,
             "Top Profile Width": x if round_table else 1.414 * x,
             "Top Profile Aspect Ratio": 1.0,
-            "Top Profile Fillet Ratio": 0.499 if round_table else uniform(0.0, 0.05),
-            "Top Thickness": top_thickness,
-            "Top Vertical Fillet Ratio": uniform(0.1, 0.3),
-            # 'Top Material': choice(['marble', 'tiled_wood', 'plastic', 'glass']),
-            "Height": z,
-            "Top Height": z - top_thickness,
-            "Leg Number": leg_number,
-            "Leg Style": leg_style,
-            "Leg NGon": choice([4, 32]),
+            "Top Profile Fillet Ratio": spawn["top_profile_fillet_ratio"],
+            "Top Thickness": params.top_thickness,
+            "Top Vertical Fillet Ratio": self.top_vertical_fillet_ratio,
+            "Height": height,
+            "Top Height": height - params.top_thickness,
+            "Leg Number": spawn["leg_number"],
+            "Leg Style": spawn["leg_style"],
+            "Leg NGon": spawn["leg_ngon"],
             "Leg Placement Top Relative Scale": 0.7,
-            "Leg Placement Bottom Relative Scale": uniform(1.1, 1.3),
+            "Leg Placement Bottom Relative Scale": self.leg_placement_bottom_relative_scale,
             "Leg Height": 1.0,
-            "Leg Diameter": leg_diameter,
-            "Leg Curve Control Points": leg_curve_ctrl_pts,
-            # 'Leg Material': choice(['metal', 'wood', 'glass']),
-            "Strecher Relative Pos": uniform(0.2, 0.6),
-            "Strecher Increament": choice([0, 1, 2]),
+            "Leg Diameter": spawn["leg_diameter"],
+            "Leg Curve Control Points": spawn["leg_curve_ctrl_pts"],
+            "Strecher Relative Pos": self.strecher_relative_pos,
+            "Strecher Increament": params.strecher_increament,
         }
 
-        return parameters
+    def _resolve_x(self, seed: int) -> float:
+        if self._dimensions is not None:
+            return self._dimensions[0]
+        with FixedSeed(seed):
+            return uniform(0.5, 0.8)
+
+    def _sample_init_parameters(self, seed: int) -> TableCocktailParameters:
+        material_params, scratch, edge_wear = self._sample_materials(seed)
+        self._material_params = material_params
+        self._scratch = scratch
+        self._edge_wear = edge_wear
+        return TableCocktailParameters(
+            seed=seed,
+            top_thickness=uniform(0.02, 0.05),
+            strecher_increament=1,
+        )
+
+    def _sample_spawn_parameters(
+        self, params: TableCocktailParameters, seed: int, i: int
+    ) -> TableCocktailParameters:
+        self._x = self._resolve_x(params.seed)
+        self._geometry_spawn = self._sample_geometry_spawn_state(self._x)
+        return params
+
+    def apply_parameters(
+        self, params: TableCocktailParameters, *, spawn_scope: bool = True
+    ) -> None:
+        if not hasattr(self, "_material_params"):
+            material_params, scratch, edge_wear = self._sample_materials(params.seed)
+            self._material_params = material_params
+            self._scratch = scratch
+            self._edge_wear = edge_wear
+        # NOTE: top_thickness effect varies by round_table and leg_style spawn branches; excluded from quartet sampling.
+        # NOTE: height, top_vertical_fillet_ratio, leg_placement_bottom_relative_scale, and strecher_relative_pos do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            if self._dimensions is None:
+                self.height = uniform(1.0, 1.5)
+            self.top_vertical_fillet_ratio = uniform(0.1, 0.3)
+            self.leg_placement_bottom_relative_scale = uniform(1.1, 1.3)
+            self.strecher_relative_pos = uniform(0.2, 0.6)
+        # NOTE: x resampled via cached _geometry_spawn in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
+        self._x = self._resolve_x(params.seed)
+        self.dimensions = self._dimensions
+        if spawn_scope and hasattr(self, "_geometry_spawn"):
+            spawn = self._geometry_spawn
+        else:
+            spawn = self._sample_geometry_spawn_state(self._x)
+        self.params = {
+            **self._build_geometry_params(params, spawn),
+            **self._material_params,
+        }
+        self.clothes_scatter = NoApply()
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
+        self._use_fixed_spawn_draws = spawn_scope
 
     def _execute_geonodes(self, is_placeholder):
         bpy.ops.mesh.primitive_plane_add(

@@ -11,19 +11,20 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import numpy as np
+from numpy.random import uniform
 
 from infinigen.assets.objects.elements.staircases.straight import (
     StraightStaircaseFactory,
+    MirroredStaircaseParameters,
+    _apply_straight_switch_params,
+    _sample_straight_switch_params,
 )
 from infinigen.assets.utils.decorate import read_co, write_co
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
-    ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
@@ -39,7 +40,7 @@ def _curved_legacy_init(
     inst.has_spiral = True
 
 
-class CurvedStaircaseParameters(LegacyBridgeParameters):
+class CurvedStaircaseParameters(MirroredStaircaseParameters):
     pass
 
 
@@ -62,55 +63,41 @@ class CurvedStaircaseFactory(StraightStaircaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> CurvedStaircaseParameters:
-        return legacy_init_to_parameters(
-            CurvedStaircaseParameters,
-            CurvedStaircaseFactory,
-            seed,
-            self.coarse,
-            self._constants_arg,
-            init_fn=_curved_legacy_init,
+        return CurvedStaircaseParameters(
+            seed=seed, **_sample_straight_switch_params(seed)
         )
 
     def apply_parameters(
         self, params: CurvedStaircaseParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _curved_legacy_init(self, params.seed, self.coarse, self._constants_arg)
+        _apply_straight_switch_params(self, params)
+        self.support_type = "double-rail"
+        self.has_rail = True
+        self.is_handrail_circular = False
+        # NOTE: cap bevel width/segments on the handrail are below detection, no within-pair strip diff; sampled on self, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.handrail_cap_width_ratio = uniform(0.2, 0.5)
+            self.handrail_cap_segments = int(np.random.randint(4, 7))
+        self._use_fixed_spawn_draws = spawn_scope
 
     def build_size_config(self):
         while True:
             self.full_angle = np.random.randint(1, 5) * np.pi / 2
-            self.n = np.random.randint(13, 21)
-            self.step_height = self.constants.wall_height / self.n
-            self.theta = self.full_angle / self.n
-            self.step_length = self.step_height * log_uniform(1, 1.5)
-            self.step_width = log_uniform(0.9, 1.5)
-            self.radius = self.step_length / self.theta
-            if self.radius / self.step_width > 1.5:
+            self.radius = log_uniform(1.5, 3.0)
+            self.n = int(self.full_angle * self.radius / log_uniform(0.25, 0.35))
+            if self.n >= 8:
                 break
+        self.step_height = self.constants.wall_height / self.n
+        self.step_width = log_uniform(0.8, 1.6)
+        self.step_length = self.step_height * log_uniform(0.8, 1.2)
+        self.theta = self.full_angle / self.n
 
-    def make_spiral(self, obj):
+    def make_line(self, alpha):
+        obj = super().make_line(alpha)
         x, y, z = read_co(obj).T
-        u = x + self.radius - self.step_width
-        t = y / self.step_length * self.theta
-        write_co(obj, np.stack([u * np.cos(t), u * np.sin(t), z], -1))
-
-    def unmake_spiral(self, obj):
-        co = read_co(obj)
-        x, y, z = co.T
-        u = np.linalg.norm(co[:, :2], axis=-1)
-        t = np.arctan2(y, x)
-        margins, ts = [], []
-        for o in np.linspace(0, np.pi * 2, 8):
-            t_ = (t - o) % (np.pi * 2) + o
-            margins.append(np.max(t_) - np.min(t_))
-            ts.append(t_)
-        t = ts[np.argmin(margins)]
-        x = u - self.radius + self.step_width
-        y = t * self.step_length / self.theta
-        co = np.stack([x, y, z], -1)
-        write_co(obj, co)
+        y = self.radius * np.sin(self.theta * y / self.step_length)
+        x = self.radius * (1 - np.cos(self.theta * y / self.step_length)) + alpha * x
+        write_co(obj, np.stack([x, y, z], -1))
         return obj
-
-    @property
-    def upper(self):
-        return np.pi / 2 + self.full_angle

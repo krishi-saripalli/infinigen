@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import randint as RI
 from numpy.random import uniform
 from numpy.random import uniform as U
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.utils.autobevel import BevelSharp
@@ -23,10 +24,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
@@ -84,8 +82,27 @@ def _window_legacy_init(
     inst.shutter = shutter
 
 
-class WindowParameters(LegacyBridgeParameters):
-    pass
+class WindowParameters(AssetParameters):
+    width: Annotated[float, Field(ge=1.0, le=4.0, json_schema_extra={"editable": True})]
+    height: Annotated[float, Field(ge=1.0, le=4.0, json_schema_extra={"editable": True})]
+    frame_thickness_frac: Annotated[
+        float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": False})
+    ]
+    curtain_frame_depth: Annotated[
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": False})
+    ]
+    curtain_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ] = 0.0
+    shutter_draw: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ] = 1.0
 
 
 class WindowFactory(ParameterizedAssetFactory, AssetFactory):
@@ -107,23 +124,159 @@ class WindowFactory(ParameterizedAssetFactory, AssetFactory):
         super(WindowFactory, self).__init__(factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
+    def _sample_materials(self) -> dict[str, Any]:
+        return {
+            "FrameMaterial": weighted_sample(material_assignments.woods)()(),
+            "CurtainFrameMaterial": weighted_sample(material_assignments.metals)()(),
+            "CurtainMaterial": weighted_sample(material_assignments.curtain)()(),
+            "Material": surface.shaderfunc_to_material(shader_window_glass),
+        }
+
+    def _build_asset_params(self, params: WindowParameters) -> dict[str, Any]:
+        if self._window_dimensions is None:
+            width = params.width
+            height = params.height
+            frame_thickness = params.frame_thickness_frac * min(width, height)
+        else:
+            width, height, frame_thickness = self._window_dimensions
+        frame_width = self.frame_width_frac * min(min(width, height), 2)
+
+        panel_width = min(U(0.8, 1.5), width)
+        panel_height = min(U(panel_width, 3), height)
+        panel_v_amount = max(width // panel_width, 1)
+        panel_h_amount = max(height // panel_height, 1)
+
+        glass_thickness = self.glass_thickness
+        sub_frame_width = U(glass_thickness, frame_width)
+        sub_frame_thickness = U(glass_thickness, frame_thickness)
+
+        sub_panel_width = U(0.4, min(panel_width, 1))
+        sub_panel_height = U(0.4, min(panel_height, 1))
+        sub_panel_height = max(
+            min(sub_panel_height, 2 * sub_panel_width), 0.5 * sub_panel_width
+        )
+        sub_frame_v_amount = max(panel_width // sub_panel_width, 1)
+        sub_frame_h_amount = max(panel_height // sub_panel_height, 1)
+
+        curtain = (
+            self._window_curtain
+            if self._window_curtain is not None
+            else params.curtain_draw < 0.3
+        )
+        shutter = (
+            self._window_shutter
+            if self._window_shutter is not None
+            else params.shutter_draw < 0.2
+        )
+        if curtain:
+            open = False
+        else:
+            open = False
+
+        open_type = RI(0, 3)
+        if panel_v_amount % 2 == 1:
+            open_type = RI(1, 3)
+        open_h_angle = 0.0
+        open_v_angle = 0.0
+        open_offset = 0.0
+        oe_offset = 0.0
+        if open_type == 0:
+            if frame_thickness < sub_frame_thickness * 2:
+                open_type = RI(1, 2)
+            else:
+                oe_offset = U(
+                    sub_frame_thickness / 2,
+                    (frame_thickness - 2 * sub_frame_thickness) / 2,
+                )
+        if open_type == 1 and open:
+            open_h_angle = U(0.5, 1.2)
+        if open_type == 2 and open:
+            open_v_angle = -U(0.5, 1.2)
+
+        shutter_panel_radius = U(0.001, 0.003)
+        shutter_width = U(0.03, 0.05)
+        shutter_thickness = U(0.003, 0.007)
+        shutter_rotation = U(0, 1)
+        shutter_inverval = shutter_width + U(0.001, 0.003)
+
+        curtain_depth = U(0.03, params.curtain_frame_depth)
+        curtain_interval_number = int(width / U(0.08, 0.2))
+        curtain_frame_radius = U(0.01, 0.02)
+        curtain_mid_l = -U(0, width / 2)
+        curtain_mid_r = U(0, width / 2)
+
+        return {
+            "Width": width,
+            "Height": height,
+            "FrameWidth": frame_width,
+            "FrameThickness": frame_thickness,
+            "PanelHAmount": panel_h_amount,
+            "PanelVAmount": panel_v_amount,
+            "SubFrameWidth": sub_frame_width,
+            "SubFrameThickness": sub_frame_thickness,
+            "SubPanelHAmount": sub_frame_h_amount,
+            "SubPanelVAmount": sub_frame_v_amount,
+            "GlassThickness": glass_thickness,
+            "OpenHAngle": open_h_angle,
+            "OpenVAngle": open_v_angle,
+            "OpenOffset": open_offset,
+            "OEOffset": oe_offset,
+            "Curtain": curtain,
+            "CurtainFrameDepth": params.curtain_frame_depth,
+            "CurtainDepth": curtain_depth,
+            "CurtainIntervalNumber": curtain_interval_number,
+            "CurtainFrameRadius": curtain_frame_radius,
+            "CurtainMidL": curtain_mid_l,
+            "CurtainMidR": curtain_mid_r,
+            "Shutter": shutter,
+            "ShutterPanelRadius": shutter_panel_radius,
+            "ShutterWidth": shutter_width,
+            "ShutterThickness": shutter_thickness,
+            "ShutterRotation": shutter_rotation,
+            "ShutterInterval": shutter_inverval,
+        }
+
     def _sample_init_parameters(self, seed: int) -> WindowParameters:
-        return legacy_init_to_parameters(
-            WindowParameters,
-            WindowFactory,
-            seed,
-            self.coarse,
-            self._window_dimensions,
-            self._window_open,
-            self._window_curtain,
-            self._window_shutter,
-            init_fn=_window_legacy_init,
+        material_params = self._sample_materials()
+        self._material_params = material_params
+        return WindowParameters(
+            seed=seed,
+            width=U(1.0, 4.0),
+            height=U(1.0, 4.0),
+            frame_thickness_frac=U(0.05, 0.15),
+            curtain_frame_depth=U(0.05, 0.1),
+            curtain_draw=0.0,
+            shutter_draw=1.0,
         )
 
     def apply_parameters(
         self, params: WindowParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        if not hasattr(self, "_material_params"):
+            self._material_params = self._sample_materials()
+        self.beveler = BevelSharp()
+        self.open = self._window_open
+        self.curtain = (
+            self._window_curtain
+            if self._window_curtain is not None
+            else params.curtain_draw < 0.3
+        )
+        self.shutter = (
+            self._window_shutter
+            if self._window_shutter is not None
+            else params.shutter_draw < 0.2
+        )
+        with FixedSeed(params.seed):
+            # NOTE: frame_width_frac and glass_thickness do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+            self.frame_width_frac = U(0.02, 0.05)
+            self.glass_thickness = U(0.01, 0.03)
+            # NOTE: frame_thickness_frac bypassed when _window_dimensions preset; curtain_frame_depth only used when curtain branch active; excluded from quartet sampling.
+            self.params = {
+                **self._build_asset_params(params),
+                **self._material_params,
+            }
+        self._use_fixed_spawn_draws = spawn_scope
+
 
     @staticmethod
     def sample_geometry_parameters():
@@ -294,10 +447,11 @@ class WindowFactory(ParameterizedAssetFactory, AssetFactory):
         return params
 
     def create_asset(self, dimensions=None, open=None, realized=True, **params):
-        obj_params = self.sample_asset_params(
-            dimensions, open, self.curtain, self.shutter
-        )
-        self.params.update(obj_params)
+        if not self._use_fixed_spawn_draws:
+            obj_params = self.sample_asset_params(
+                dimensions, open, self.curtain, self.shutter
+            )
+            self.params.update(obj_params)
 
         obj = butil.spawn_cube()
         butil.modify_mesh(

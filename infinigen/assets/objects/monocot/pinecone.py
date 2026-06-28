@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 import infinigen.core.util.blender as butil
 from infinigen.assets.objects.monocot.growth import MonocotGrowthFactory
@@ -19,54 +20,27 @@ from infinigen.core.nodes.node_info import Nodes
 from infinigen.core.nodes.node_utils import build_color_ramp
 from infinigen.core.nodes.node_wrangler import NodeWrangler
 from infinigen.core.placement.detail import remesh_with_attrs
-from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.surface import shaderfunc_to_material
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
-def _monocot_base_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    base = MonocotGrowthFactory.__new__(MonocotGrowthFactory)
-    AssetFactory.__init__(base, seed, coarse)
-    MonocotGrowthFactory.__init__(base, seed, coarse)
-    for key, value in vars(base).items():
-        if key not in ("factory_seed", "coarse"):
-            setattr(inst, key, value)
-
-
-def _pinecone_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    _monocot_base_legacy_init(inst, seed, coarse)
-    inst.angle = 2 * np.pi / (np.random.randint(4, 8) + 0.5)
-    inst.max_y_angle = uniform(0.7, 0.8) * np.pi / 2
-    inst.leaf_prob = uniform(0.9, 0.95)
-    inst.count = int(log_uniform(64, 96))
-    inst.stem_offset = uniform(0.2, 0.4)
-    inst.perturb = 0
-    inst.scale_curve = [
-        (0, 0.5),
-        (0.5, uniform(0.6, 1.0)),
-        (1, uniform(0.1, 0.2)),
+class PineconeParameters(AssetParameters):
+    angle: Annotated[float, Field(ge=0.739008, le=1.396263, json_schema_extra={"editable": True})]
+    count: Annotated[float, Field(ge=64.0, le=96.0, json_schema_extra={"editable": True})]
+    stem_offset: Annotated[
+        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})
     ]
-    inst.bright_color = hsv2rgba(uniform(0.02, 0.06), uniform(0.8, 1.0), 0.01)
-    inst.dark_color = hsv2rgba(uniform(0.02, 0.06), uniform(0.8, 1.0), 0.005)
-    inst.material = shaderfunc_to_material(
-        inst.shader_monocot,
-        inst.dark_color,
-        inst.bright_color,
-        inst.use_distance,
-    )
-
-
-class PineconeParameters(LegacyBridgeParameters):
-    pass
+    scale_curve_mid: Annotated[
+        float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})
+    ]
+    z_scale: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
 
 
 class PineconeFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -76,19 +50,59 @@ class PineconeFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         super(PineconeFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_material(self, seed: int) -> None:
+        # NOTE: color_hue is sampled on self in apply_parameters; excluded from quartet sampling (material-only, not exported geometry).
+        with FixedSeed(seed):
+            color_hue = uniform(0.02, 0.06)
+            bright_color = hsv2rgba(color_hue, uniform(0.8, 1.0), 0.01)
+            dark_color = hsv2rgba(color_hue, uniform(0.8, 1.0), 0.005)
+        self.material = shaderfunc_to_material(
+            self.shader_monocot, dark_color, bright_color, self.use_distance
+        )
+
     def _sample_init_parameters(self, seed: int) -> PineconeParameters:
-        return legacy_init_to_parameters(
-            PineconeParameters,
-            PineconeFactory,
-            seed,
-            self.coarse,
-            init_fn=_pinecone_legacy_init,
+        z_scale = uniform(1.0, 1.2)
+        self._sample_material(seed)
+        scale_curve_mid = uniform(0.6, 1.0)
+        return PineconeParameters(
+            seed=seed,
+            angle=2 * np.pi / (np.random.randint(4, 8) + 0.5),
+            count=log_uniform(64, 96),
+            stem_offset=uniform(0.2, 0.4),
+            scale_curve_mid=scale_curve_mid,
+            z_scale=z_scale,
         )
 
     def apply_parameters(
         self, params: PineconeParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self._sample_material(params.seed)
+        self.angle = params.angle
+        # NOTE: max_y_angle, leaf_prob, scale_curve_high do not elicit a clear visual change in exported geometry; sampled on self, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.max_y_angle = uniform(0.7, 0.8) * np.pi / 2
+            self.leaf_prob = uniform(0.9, 0.95)
+            self.scale_curve_high = uniform(0.1, 0.2)
+        self.min_y_angle = 0.0
+        self.count = int(params.count)
+        # NOTE: stem_offset sets stem length; scale on curve is gated by leaf_prob when instancing scales.
+        self.stem_offset = params.stem_offset
+        self.perturb = 0
+        self.scale_curve = [
+            (0, 0.5),
+            (0.5, params.scale_curve_mid),
+            (1, self.scale_curve_high),
+        ]
+        self.leaf_range = (0, 1)
+        self.radius = 0.01
+        self.bend_angle = np.pi / 4
+        self.twist_angle = np.pi / 6
+        self.z_drag = 0.0
+        self.z_scale = params.z_scale
+        self.align_factor = 0
+        self.align_direction = (1, 0, 0)
+        self._use_fixed_spawn_draws = spawn_scope
+        self._cache_decor_state(params.seed)
 
     def build_leaf(self, face_size):
         obj = new_circle(vertices=128)

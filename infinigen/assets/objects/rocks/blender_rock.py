@@ -23,11 +23,11 @@ require_blender_addon("extra_mesh_objects", fail="warn")
 
 
 class BlenderRockParameters(AssetParameters):
-    rock_seed: Annotated[int, Field(ge=0, le=99998, json_schema_extra={"editable": True})]
-    zscale: Annotated[float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})]
-    zrand: Annotated[float, Field(ge=0.0, le=0.7, json_schema_extra={"editable": True})]
-    deform: Annotated[float, Field(ge=2.0, le=10.0, json_schema_extra={"editable": True})]
-    rough: Annotated[float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})]
+    rock_seed: Annotated[int, Field(ge=0, le=99998, json_schema_extra={"editable": False})]
+    zscale: Annotated[float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": False})]
+    zrand: Annotated[float, Field(ge=0.0, le=0.7, json_schema_extra={"editable": False})]
+    deform: Annotated[float, Field(ge=2.0, le=10.0, json_schema_extra={"editable": False})]
+    rough: Annotated[float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": False})]
 
 
 class BlenderRockFactory(ParameterizedAssetFactory, AssetFactory):

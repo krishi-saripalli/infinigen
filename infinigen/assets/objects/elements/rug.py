@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import Annotated, ClassVar
 
 import bpy
-import numpy as np
 from numpy.random import uniform
 from pydantic import Field
 
@@ -16,21 +15,27 @@ from infinigen.assets.materials.art import ArtRug
 from infinigen.assets.utils.object import new_base_circle, new_bbox, new_plane
 from infinigen.assets.utils.uv import wrap_sides
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import clip_gaussian, weighted_sample
 
 
 class RugParameters(AssetParameters):
-    width: Annotated[float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": True})]
-    length: Annotated[float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": True})]
-    rounded_buffer: Annotated[
-        float, Field(ge=0.1, le=0.5, json_schema_extra={"editable": True})
-    ]
-    thickness: Annotated[
-        float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
-    ]
+    rug_shape: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["rectangle", "circle", "rounded", "ellipse"],
+            }
+        ),
+    ] = "rounded"
+    length: Annotated[float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": False})]
 
 
 class RugFactory(ParameterizedAssetFactory, AssetFactory):
@@ -43,9 +48,6 @@ class RugFactory(ParameterizedAssetFactory, AssetFactory):
     def _apply_internal_state(self, params: RugParameters) -> None:
         with FixedSeed(params.seed):
             clip_gaussian(3, 1, 2, 6)
-            self.rug_shape = np.random.choice(
-                ["rectangle", "circle", "rounded", "ellipse"]
-            )
             if self.rug_shape != "circle":
                 uniform(1, 1.5)
             uniform(0.1, 0.5)
@@ -58,39 +60,37 @@ class RugFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> RugParameters:
         with FixedSeed(seed):
-            width = clip_gaussian(3, 1, 2, 6)
-            rug_shape = np.random.choice(
-                ["rectangle", "circle", "rounded", "ellipse"]
-            )
-            length = 1.0 if rug_shape == "circle" else uniform(1, 1.5)
-            rounded_buffer = uniform(0.1, 0.5)
-            thickness = uniform(0.01, 0.02)
+            rug_shape = "rounded"
+            length = uniform(1, 1.5)
             surface_gen_class = weighted_sample(material_assignments.rug_fabric)
             surface = surface_gen_class()()
             if surface == ArtRug:
                 surface = surface(seed)
-            self.rug_shape = rug_shape
             self.surface = surface
         return RugParameters(
             seed=seed,
-            width=width,
+            rug_shape=rug_shape,
             length=length,
-            rounded_buffer=rounded_buffer,
-            thickness=thickness,
         )
 
     def apply_parameters(
         self, params: RugParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.width = params.width
+        self.rug_shape = params.rug_shape
+        # NOTE: width sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.width = clip_gaussian(3, 1, 2, 6)
         self._apply_internal_state(params)
+        # NOTE: length only scales non-circle rugs; circle shape uses width for both axes.
         self.length = (
-            params.width
+            self.width
             if self.rug_shape == "circle"
-            else params.width * params.length
+            else self.width * params.length
         )
-        self.rounded_buffer = params.rounded_buffer
-        self.thickness = params.thickness
+        # NOTE: rounded_buffer and thickness sampled on self from seed; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.rounded_buffer = uniform(0.1, 0.5)
+            self.thickness = uniform(0.01, 0.02)
         self._use_fixed_spawn_draws = spawn_scope
 
     def build_shape(self):

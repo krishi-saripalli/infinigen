@@ -49,23 +49,27 @@ class ChairParameters(AssetParameters):
     seat_mid_z: Annotated[float, Field(ge=0.0, le=0.5, json_schema_extra={"editable": True})]
     seat_front: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
     is_seat_round_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     is_seat_subsurf_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     leg_thickness: Annotated[float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": True})]
     limb_profile: Annotated[float, Field(ge=1.5, le=2.5, json_schema_extra={"editable": True})]
     leg_height: Annotated[float, Field(ge=0.45, le=0.5, json_schema_extra={"editable": True})]
-    back_height: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": True})]
     is_leg_round_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     has_leg_x_bar_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     has_leg_y_bar_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
     leg_offset_bar_low: Annotated[
         float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
@@ -73,19 +77,26 @@ class ChairParameters(AssetParameters):
     leg_offset_bar_high: Annotated[
         float, Field(ge=0.6, le=0.8, json_schema_extra={"editable": True})
     ]
-    has_arm_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    arm_thickness: Annotated[float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": True})]
-    arm_height: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})]
-    arm_y: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})]
-    arm_z: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})]
-    back_thickness: Annotated[float, Field(ge=0.04, le=0.05, json_schema_extra={"editable": True})]
-    back_vertical_cuts: Annotated[int, Field(ge=1, le=3, json_schema_extra={"editable": True})]
-    back_partial_scale: Annotated[float, Field(ge=1.0, le=1.4, json_schema_extra={"editable": True})]
-    panel_surface_same_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    has_arm_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
-    scratch_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    edge_wear_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
+    arm_thickness: Annotated[float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": False})]
+    arm_height: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": False})]
+    arm_y: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})]
+    arm_z: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})]
+    back_vertical_cuts: Annotated[int, Field(ge=1, le=3, json_schema_extra={"editable": False})]
+    back_partial_scale: Annotated[float, Field(ge=1.0, le=1.4, json_schema_extra={"editable": False})]
+    panel_surface_same_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ]
+    scratch_draw: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ]
+    edge_wear_draw: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ]
     smoothness: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})] = (
         0.0
     )
@@ -109,7 +120,9 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _resolve_chair_internals(self, seed: int) -> dict[str, Any]:
+    def _resolve_chair_internals(
+        self, seed: int, panel_surface_same_draw: float | None = None
+    ) -> dict[str, Any]:
         with FixedSeed(seed):
             limb_surface_gen_class = weighted_sample(material_assignments.furniture_leg)
             limb_surface_material_gen = limb_surface_gen_class()
@@ -118,7 +131,9 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
             )
             surface_material_gen = surface_gen_class()
             surface_mat = surface_material_gen()
-            panel_surface_same_draw = uniform()
+            panel_surface_same_draw = (
+                uniform() if panel_surface_same_draw is None else panel_surface_same_draw
+            )
             panel_surface = (
                 surface_mat
                 if panel_surface_same_draw < 0.3
@@ -154,7 +169,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         seat_back = uniform(0.7, 1.0) if uniform() < 0.75 else 1.0
         seat_mid = uniform(0.7, 0.8)
         seat_mid_x = uniform(seat_back + seat_mid * (1 - seat_back), 1)
-        back_height = uniform(0.4, 0.5)
         arm_thickness = uniform(0.04, 0.06)
         scratch_draw = uniform()
         edge_wear_draw = uniform()
@@ -174,7 +188,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
             leg_thickness=uniform(0.04, 0.06),
             limb_profile=uniform(1.5, 2.5),
             leg_height=uniform(0.45, 0.5),
-            back_height=back_height,
             is_leg_round_draw=uniform(),
             has_leg_x_bar_draw=uniform(),
             has_leg_y_bar_draw=uniform(),
@@ -185,7 +198,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
             arm_height=uniform(0.6, 1.0),
             arm_y=uniform(0.8, 1.0),
             arm_z=uniform(0.3, 0.6),
-            back_thickness=uniform(0.04, 0.05),
             back_vertical_cuts=int(np.random.randint(1, 4)),
             back_partial_scale=uniform(1, 1.4),
             panel_surface_same_draw=uniform(),
@@ -225,7 +237,9 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: ChairParameters, *, spawn_scope: bool = True
     ) -> None:
-        internals = self._resolve_chair_internals(params.seed)
+        internals = self._resolve_chair_internals(
+            params.seed, params.panel_surface_same_draw
+        )
         self.width = params.width
         self.size = params.size
         self.thickness = params.thickness
@@ -240,7 +254,9 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.leg_thickness = params.leg_thickness
         self.limb_profile = params.limb_profile
         self.leg_height = params.leg_height
-        self.back_height = params.back_height
+        # NOTE: back_height does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.back_height = uniform(0.4, 0.5)
         self.is_leg_round = params.is_leg_round_draw < 0.5
         self.leg_type = internals["leg_type"]
         self.leg_x_offset = 0.0
@@ -257,7 +273,9 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.arm_z = params.arm_z * self.back_height
         self.arm_mid = np.array(internals["arm_mid"])
         self.arm_profile = np.array(internals["arm_profile"])
-        self.back_thickness = params.back_thickness
+        # NOTE: back_thickness range (0.04-0.05) is too narrow to survive cube normalization; no within-pair strip diff, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.back_thickness = uniform(0.04, 0.05)
         self.back_type = internals["back_type"]
         self.back_profile = [(0.0, 1.0)]
         self.back_vertical_cuts = params.back_vertical_cuts

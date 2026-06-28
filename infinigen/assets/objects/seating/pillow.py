@@ -30,36 +30,37 @@ from infinigen.assets.utils.object import (
 from infinigen.assets.utils.uv import unwrap_faces
 from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
-from infinigen.core.util.random import random_general as rg
 
 
 class PillowParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": True})]
     bevel_width: Annotated[
-        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})
-    ]
-    thickness: Annotated[
-        float, Field(ge=0.006, le=0.008, json_schema_extra={"editable": True})
+        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": False})
     ]
     has_seam_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
-    seam_radius: Annotated[
-        float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
-    ]
-    torus_inner_radius: Annotated[
-        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
-    ] = 0.3
-    pressure: Annotated[float, Field(ge=1.0, le=12.0, json_schema_extra={"editable": True})] = (
-        1.5
-    )
-    tension_stiffness: Annotated[
-        float, Field(ge=0.0, le=5.0, json_schema_extra={"editable": True})
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ] = 0.0
+    seam_radius: Annotated[
+        float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": False})
+    ]
+    shape: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["square", "rectangle", "circle", "torus"],
+            }
+        ),
+    ] = "square"
 
 
 class PillowFactory(ParameterizedAssetFactory, AssetFactory):
@@ -77,10 +78,9 @@ class PillowFactory(ParameterizedAssetFactory, AssetFactory):
         super(PillowFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _resolve_init_state(self, seed: int, width: float) -> None:
+    def _resolve_init_state(self, seed: int, width: float, shape: str) -> None:
         with FixedSeed(seed):
-            self.shape = rg(self.shapes)
-            uniform(0.4, 0.7)
+            self.shape = shape
             self._size_ratio = (
                 1.0 if self.shape == "square" else log_uniform(0.6, 0.8)
             )
@@ -92,47 +92,51 @@ class PillowFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> PillowParameters:
         width = uniform(0.4, 0.7)
-        self._resolve_init_state(seed, width)
+        shape = "square"
+        self._resolve_init_state(seed, width, shape)
         return PillowParameters(
             seed=seed,
             width=width,
             bevel_width=uniform(0.02, 0.05),
-            thickness=log_uniform(0.006, 0.008),
-            has_seam_draw=uniform(),
             seam_radius=uniform(0.01, 0.02),
+            shape=shape,
         )
 
     def _sample_spawn_parameters(
         self, params: PillowParameters, seed: int, i: int
     ) -> PillowParameters:
         extrude_draw = uniform()
+        with FixedSeed(params.seed):
+            thickness = log_uniform(0.006, 0.008)
         self._extrude_thickness = (
-            params.thickness * log_uniform(1, 8) if extrude_draw < 0.5 else 0.0
+            thickness * log_uniform(1, 8) if extrude_draw < 0.5 else 0.0
         )
-        pressure = uniform(8, 12) if self.shape == "torus" else uniform(1, 2)
-        return params.model_copy(
-            update={
-                "torus_inner_radius": uniform(0.2, 0.4),
-                "pressure": pressure,
-                "tension_stiffness": uniform(0, 5),
-            }
-        )
+        return params
 
     def apply_parameters(
         self, params: PillowParameters, *, spawn_scope: bool = True
     ) -> None:
-        if not hasattr(self, "shape"):
-            self._resolve_init_state(params.seed, params.width)
+        if not hasattr(self, "surface"):
+            self._resolve_init_state(params.seed, params.width, params.shape)
+        self.shape = params.shape
+        with FixedSeed(params.seed):
+            self._size_ratio = (
+                1.0 if params.shape == "square" else log_uniform(0.6, 0.8)
+            )
         self.width = params.width
         self.size = params.width * self._size_ratio
         self.bevel_width = params.bevel_width
-        self.thickness = params.thickness
+        # NOTE: thickness, torus_inner_radius, pressure, and tension_stiffness resampled in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.thickness = log_uniform(0.006, 0.008)
+            self.torus_inner_radius = uniform(0.2, 0.4)
+            self.pressure = (
+                uniform(8, 12) if self.shape == "torus" else uniform(1, 2)
+            )
+            self.tension_stiffness = uniform(0, 5)
         self.extrude_thickness = getattr(self, "_extrude_thickness", 0.0)
         self.has_seam = params.has_seam_draw < 0.3 and self.shape != "torus"
         self.seam_radius = params.seam_radius
-        self.torus_inner_radius = params.torus_inner_radius
-        self.pressure = params.pressure
-        self.tension_stiffness = params.tension_stiffness
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

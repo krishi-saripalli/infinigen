@@ -4,11 +4,19 @@
 # Authors: Lingjie Mei
 
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
-from infinigen.assets.objects.deformed_trees.base import BaseDeformedTreeFactory
+from infinigen.assets.objects.deformed_trees.base import (
+    BaseDeformedTreeFactory,
+    BaseDeformedTreeParameters,
+)
 from infinigen.assets.utils.decorate import (
     read_material_index,
     remove_vertices,
@@ -19,13 +27,60 @@ from infinigen.assets.utils.object import join_objects, new_icosphere, separate_
 from infinigen.core import surface
 from infinigen.core.nodes.node_info import Nodes
 from infinigen.core.nodes.node_wrangler import NodeWrangler
+from infinigen.core.placement.parameters import AssetParameters
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.random import log_uniform
 
 
+class RottenTreeParameters(BaseDeformedTreeParameters):
+    rot_height: Annotated[
+        float, Field(ge=0.8, le=1.6, json_schema_extra={"editable": True})
+    ]
+    cutter_depth_ratio: Annotated[
+        float, Field(ge=0.4, le=0.9, json_schema_extra={"editable": True})
+    ]
+    cutter_radius_scale: Annotated[
+        float, Field(ge=0.8, le=1.2, json_schema_extra={"editable": True})
+    ]
+    cutter_height_scale: Annotated[
+        float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})
+    ]
+    noise_strength_ratio: Annotated[
+        float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})
+    ]
+    noise_scale: Annotated[
+        float, Field(ge=10.0, le=15.0, json_schema_extra={"editable": True})
+    ]
+
+
 class RottenTreeFactory(BaseDeformedTreeFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = RottenTreeParameters
+
+    def _sample_init_parameters(self, seed: int) -> RottenTreeParameters:
+        base = super()._sample_init_parameters(seed)
+        return RottenTreeParameters(
+            **base.model_dump(),
+            rot_height=uniform(0.8, 1.6),
+            cutter_depth_ratio=uniform(0.4, 0.9),
+            cutter_radius_scale=uniform(0.8, 1.2),
+            cutter_height_scale=log_uniform(1.0, 1.2),
+            noise_strength_ratio=uniform(0.5, 0.8),
+            noise_scale=uniform(10, 15),
+        )
+
+    def apply_parameters(
+        self, params: RottenTreeParameters, *, spawn_scope: bool = True
+    ) -> None:
+        super().apply_parameters(params, spawn_scope=spawn_scope)
+        self.rot_height = params.rot_height
+        self.cutter_depth_ratio = params.cutter_depth_ratio
+        self.cutter_radius_scale = params.cutter_radius_scale
+        self.cutter_height_scale = params.cutter_height_scale
+        self.noise_strength_ratio = params.noise_strength_ratio
+        self.noise_scale = params.noise_scale
+
     @staticmethod
     def geo_cutter(nw: NodeWrangler, strength, scale, metric_fn):
         geometry = nw.new_node(
@@ -74,12 +129,12 @@ class RottenTreeFactory(BaseDeformedTreeFactory):
     def build_cutter(self, radius, height):
         cutter = new_icosphere(subdivisions=6)
         angle = uniform(-np.pi, 0)
-        depth = radius * uniform(0.4, 0.9)
+        depth = radius * self.cutter_depth_ratio
         cutter_scale = np.array(
             [
-                radius * uniform(0.8, 1.2),
-                radius * uniform(0.8, 1.2),
-                log_uniform(1.0, 1.2),
+                radius * self.cutter_radius_scale,
+                radius * self.cutter_radius_scale,
+                self.cutter_height_scale,
             ]
         )
         cutter_location = np.array(
@@ -122,7 +177,7 @@ class RottenTreeFactory(BaseDeformedTreeFactory):
                 if v.co[-1] < 0.1
             ]
         )
-        height = uniform(0.8, 1.6)
+        height = self.rot_height
         cutter, fn, inverse_fn, metric_fn = self.build_cutter(radius, height)
         butil.modify_mesh(outer, "BOOLEAN", object=cutter, operation="DIFFERENCE")
         outer = separate_loose(outer)
@@ -150,13 +205,12 @@ class RottenTreeFactory(BaseDeformedTreeFactory):
         ] = ring_material_index
         write_material_index(obj, material_indices)
 
-        noise_strength = cutter.scale[-1] * uniform(0.5, 0.8)
-        noise_scale = uniform(10, 15)
+        noise_strength = cutter.scale[-1] * self.noise_strength_ratio
         surface.add_geomod(
             obj,
             self.geo_cutter,
             apply=True,
-            input_args=[noise_strength, noise_scale, metric_fn],
+            input_args=[noise_strength, self.noise_scale, metric_fn],
         )
         surface.add_geomod(obj, self.geo_xyz, apply=True)
         butil.delete(cutter)

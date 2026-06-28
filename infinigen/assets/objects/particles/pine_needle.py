@@ -111,7 +111,14 @@ def nodegroup_pine_needle(nw: NodeWrangler):
 
 
 class PineNeedleParameters(AssetParameters):
-    s: Annotated[float, Field(ge=0.4, le=1.6, json_schema_extra={"editable": True})]
+    s: Annotated[
+        float,
+        Field(
+            ge=0.4,
+            le=1.6,
+            json_schema_extra={"editable": False},
+        ),
+    ]
     Bend: Annotated[float, Field(ge=0.4, le=1.6, json_schema_extra={"editable": True})]
     Radius: Annotated[
         float, Field(ge=0.4, le=1.6, json_schema_extra={"editable": True})

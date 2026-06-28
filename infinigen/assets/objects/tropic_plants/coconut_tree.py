@@ -3,10 +3,14 @@
 
 # Authors: Beining Han
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.objects.fruits.coconutgreen import FruitFactoryCoconutgreen
 from infinigen.assets.objects.tropic_plants.leaf_palm_tree import LeafPalmTreeFactory
@@ -14,6 +18,10 @@ from infinigen.core import surface
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.color import hsv2rgba
 
@@ -1721,7 +1729,7 @@ def geometry_coconut_tree_nodes(nw: NodeWrangler, **kwargs):
         input_kwargs={
             "Segments": top_segment,
             "Rings": top_ring,
-            "Radius": uniform(0.15, 0.2),
+            "Radius": kwargs.get("crown_radius", uniform(0.15, 0.2)),
         },
     )
 
@@ -1841,7 +1849,7 @@ def geometry_coconut_tree_nodes(nw: NodeWrangler, **kwargs):
     )
 
     geos = [instance_on_points, set_material]
-    if uniform(0.0, 1.0) < 0.3:
+    if uniform(0.0, 1.0) < kwargs.get("truncated_stem_chance", 0.3):
         geos.append(truncatedstemgeometry)
     join_geometry = nw.new_node(Nodes.JoinGeometry, input_kwargs={"Geometry": geos})
 
@@ -1850,9 +1858,63 @@ def geometry_coconut_tree_nodes(nw: NodeWrangler, **kwargs):
     )
 
 
-class CoconutTreeFactory(AssetFactory):
+class CoconutTreeParameters(AssetParameters):
+    trunk_radius: Annotated[
+        float, Field(ge=0.2, le=0.3, json_schema_extra={"editable": False})
+    ] = 0.25
+    leaf_x_curvature: Annotated[
+        float, Field(ge=0.3, le=0.8, json_schema_extra={"editable": False})
+    ] = 0.55
+    crown_radius: Annotated[
+        float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": False})
+    ] = 0.175
+    truncated_stem_chance: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 0.3
+    leaf_seed: Annotated[
+        int, Field(ge=0, le=1000, json_schema_extra={"editable": False})
+    ] = 0
+    coconut_seed: Annotated[
+        int, Field(ge=0, le=1000, json_schema_extra={"editable": False})
+    ] = 0
+
+
+class CoconutTreeFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = CoconutTreeParameters
+
     def __init__(self, factory_seed, coarse=False):
         super(CoconutTreeFactory, self).__init__(factory_seed, coarse=coarse)
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> CoconutTreeParameters:
+        return CoconutTreeParameters(seed=seed)
+
+    def _sample_spawn_parameters(
+        self, params: CoconutTreeParameters, seed: int, i: int
+    ) -> CoconutTreeParameters:
+        return params.model_copy(
+            update={
+                "trunk_radius": uniform(0.2, 0.3),
+                "leaf_x_curvature": uniform(0.3, 0.8),
+                "crown_radius": uniform(0.15, 0.2),
+                "truncated_stem_chance": 0.3,
+                "leaf_seed": int(randint(0, 1000, size=(1,))[0]),
+                "coconut_seed": int(randint(0, 1000, size=(1,))[0]),
+            }
+        )
+
+    def apply_parameters(
+        self, params: CoconutTreeParameters, *, spawn_scope: bool = True
+    ) -> None:
+        self.geom_kwargs = {
+            "trunk_radius": params.trunk_radius,
+            "crown_radius": params.crown_radius,
+            "truncated_stem_chance": params.truncated_stem_chance,
+        }
+        self.leaf_x_curvature = params.leaf_x_curvature
+        self.leaf_seed = params.leaf_seed
+        self.coconut_seed = params.coconut_seed
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, params={}, **kwargs):
         bpy.ops.mesh.primitive_plane_add(
@@ -1864,25 +1926,35 @@ class CoconutTreeFactory(AssetFactory):
         )
         obj = bpy.context.active_object
 
-        # Make the Leaf and Delete It Later
-        lf_seed = randint(0, 1000, size=(1,))[0]
-        leaf_model = LeafPalmTreeFactory(factory_seed=lf_seed)
-        p = {"leaf_x_curvature": uniform(0.3, 0.8)}
-        leaf = leaf_model.create_asset(p)
-        params["leaf"] = [leaf]
+        if self._use_fixed_spawn_draws:
+            lf_seed = self.leaf_seed
+            co_seed = self.coconut_seed
+            geom_params = dict(self.geom_kwargs)
+            leaf_x_curvature = self.leaf_x_curvature
+        else:
+            lf_seed = int(randint(0, 1000, size=(1,))[0])
+            co_seed = int(randint(0, 1000, size=(1,))[0])
+            geom_params = {
+                "trunk_radius": uniform(0.2, 0.3),
+                "crown_radius": uniform(0.15, 0.2),
+                "truncated_stem_chance": 0.3,
+            }
+            leaf_x_curvature = uniform(0.3, 0.8)
 
-        co_seed = randint(0, 1000, size=(1,))[0]
+        leaf_model = LeafPalmTreeFactory(factory_seed=lf_seed)
+        leaf = leaf_model.create_asset({"leaf_x_curvature": leaf_x_curvature})
+        geom_params["leaf"] = [leaf]
+
         coconut_model = FruitFactoryCoconutgreen(factory_seed=co_seed)
         coconut = coconut_model.create_asset()
-        params["coconut"] = [coconut]
-        params["trunk_radius"] = uniform(0.2, 0.3)
+        geom_params["coconut"] = [coconut]
 
         surface.add_geomod(
             obj,
             geometry_coconut_tree_nodes,
             selection=None,
             attributes=[],
-            input_kwargs=params,
+            input_kwargs=geom_params,
         )
         butil.delete([leaf, coconut])
         with butil.SelectObjects(obj):

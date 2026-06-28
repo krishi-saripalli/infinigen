@@ -4,10 +4,15 @@
 # Authors: Lahav Lipson
 
 
+from __future__ import annotations
+
+from typing import Annotated, Any, ClassVar
+
 import bpy
 import gin
 import numpy as np
-from typing import Any, ClassVar
+from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets import colors
 from infinigen.assets.objects.rocks.blender_rock import BlenderRockFactory
@@ -16,13 +21,11 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory, make_asset_collection
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 
 
 def shader_glowrock(nw: NodeWrangler, transparent_for_bounce=True):
@@ -60,8 +63,36 @@ def _glowing_rocks_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
     inst.material = surface.shaderfunc_to_material(shader_glowrock)
 
 
-class GlowingRocksParameters(LegacyBridgeParameters):
-    pass
+class GlowingRocksParameters(AssetParameters):
+    rot_x: Annotated[
+        float, Field(ge=-3.141593, le=3.141593, json_schema_extra={"editable": False})
+    ] = 0.0
+    rot_y: Annotated[
+        float, Field(ge=-3.141593, le=3.141593, json_schema_extra={"editable": False})
+    ] = 0.0
+    rot_z: Annotated[
+        float, Field(ge=-3.141593, le=3.141593, json_schema_extra={"editable": False})
+    ] = 0.0
+    scale_x: Annotated[
+        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": False})
+    ] = 0.5
+    scale_y: Annotated[
+        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": False})
+    ] = 0.5
+    scale_z: Annotated[
+        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": False})
+    ] = 0.5
+    light_energy: Annotated[
+        float, Field(ge=400.0, le=800.0, json_schema_extra={"editable": False})
+    ] = 600.0
+    rock_choice_draw: Annotated[
+        int,
+        Field(
+            ge=0,
+            le=4,
+            json_schema_extra={"editable": False, "kind": "enum", "choices": [0, 1, 2, 3, 4]},
+        ),
+    ] = 0
 
 
 @gin.configurable
@@ -87,34 +118,67 @@ class GlowingRocksFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> GlowingRocksParameters:
-        return legacy_init_to_parameters(
-            GlowingRocksParameters,
-            GlowingRocksFactory,
-            seed,
-            self.coarse,
-            init_fn=_glowing_rocks_legacy_init,
+        return GlowingRocksParameters(seed=seed)
+
+    def _sample_spawn_parameters(
+        self, params: GlowingRocksParameters, seed: int, i: int
+    ) -> GlowingRocksParameters:
+        return params.model_copy(
+            update={
+                "rot_x": uniform(-np.pi, np.pi),
+                "rot_y": uniform(-np.pi, np.pi),
+                "rot_z": uniform(-np.pi, np.pi),
+                "scale_x": uniform(0.35, 0.75),
+                "scale_y": uniform(0.35, 0.75),
+                "scale_z": uniform(0.35, 0.75),
+                "light_energy": uniform(*self._watt_power_range),
+                "rock_choice_draw": int(np.random.randint(0, 5)),
+            }
         )
 
     def apply_parameters(
         self, params: GlowingRocksParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _glowing_rocks_legacy_init(self, params.seed, self.coarse)
+        self._use_fixed_spawn_draws = spawn_scope
+        if spawn_scope:
+            self._rot_x = params.rot_x
+            self._rot_y = params.rot_y
+            self._rot_z = params.rot_z
+            self._scale_x = params.scale_x
+            self._scale_y = params.scale_y
+            self._scale_z = params.scale_z
+            self._light_energy = params.light_energy
+            self._rock_choice_draw = params.rock_choice_draw
+
 
     def create_placeholder(self, i, loc, rot):
         placeholder = butil.spawn_empty("placeholder", disp_type="SPHERE", s=0.1)
         return placeholder
 
     def create_asset(self, *args, **kwargs) -> bpy.types.Object:
-        src_obj = np.random.choice(list(self.rock_collection.objects))
+        if self._use_fixed_spawn_draws:
+            rocks = list(self.rock_collection.objects)
+            idx = min(max(int(self._rock_choice_draw), 0), len(rocks) - 1)
+            src_obj = rocks[idx]
+            rotation = (self._rot_x, self._rot_y, self._rot_z)
+            scale = (self._scale_x, self._scale_y, self._scale_z)
+            light_energy = round(self._light_energy)
+        else:
+            src_obj = np.random.choice(list(self.rock_collection.objects))
+            rotation = np.random.uniform(-np.pi, np.pi, 3)
+            scale = np.random.uniform(0.7, 1.5, 3) * 0.5
+            light_energy = round(np.random.uniform(*self.watt_power_range))
+
         new_obj = butil.deep_clone_obj(src_obj)
 
-        new_obj.rotation_euler = np.random.uniform(-np.pi, np.pi, 3)
-        new_obj.scale = np.random.uniform(0.7, 1.5, 3) * 0.5
+        new_obj.rotation_euler = rotation
+        new_obj.scale = scale
         new_obj.active_material = self.material
-        bbox = np.asarray(new_obj.bound_box[:])  # 8 3
+        bbox = np.asarray(new_obj.bound_box[:])
         min_side_length = (bbox.max(axis=0) - bbox.min(axis=0)).min()
 
-        # Diameter is set to half the shortest edge of the bbox
         bpy.ops.object.light_add(
             type="POINT",
             radius=min_side_length * 1.0,
@@ -124,7 +188,7 @@ class GlowingRocksFactory(ParameterizedAssetFactory, AssetFactory):
             scale=(1, 1, 1),
         )
         point_light = bpy.context.selected_objects[0]
-        point_light.data.energy = round(np.random.uniform(*self.watt_power_range))
+        point_light.data.energy = light_energy
         point_light.parent = new_obj
 
         butil.apply_transform(new_obj)

@@ -7,8 +7,7 @@
 from __future__ import annotations
 
 import logging
-
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import gin
@@ -40,7 +39,10 @@ from infinigen.assets.utils.misc import toggle_hide, toggle_show
 from infinigen.core import surface
 from infinigen.core.placement import detail
 from infinigen.core.placement.factory import AssetFactory, make_asset_collection
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.placement.split_in_view import split_inview
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
@@ -53,18 +55,38 @@ from . import tree_flower
 logger = logging.getLogger(__name__)
 
 
+class GenericTreeParameters(AssetParameters):
+    tree_scale: Annotated[
+        float, Field(ge=0.25, le=0.45, json_schema_extra={"editable": True})
+    ]
+    max_radius: Annotated[
+        float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": True})
+    ]
+    min_radius: Annotated[
+        float, Field(ge=0.01, le=0.04, json_schema_extra={"editable": True})
+    ]
+    branch_exponent: Annotated[
+        float, Field(ge=1.5, le=2.5, json_schema_extra={"editable": True})
+    ]
+    child_density: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    ]
+    child_max_scale: Annotated[
+        float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": True})
+    ]
+
+
 @gin.configurable
-class GenericTreeFactory(AssetFactory):
-    scale = (
-        0.35  # trees are defined in weird units currently, need converting to meters
-    )
+class GenericTreeFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = GenericTreeParameters
+    scale = 0.35
 
     def __init__(
         self,
         factory_seed,
-        genome: tree.TreeParams,
-        child_col,
-        trunk_surface,
+        genome: tree.TreeParams | None = None,
+        child_col=None,
+        trunk_surface=None,
         realize=False,
         meshing_cameras=None,
         cam_meshing_max_dist=1e7,
@@ -74,20 +96,82 @@ class GenericTreeFactory(AssetFactory):
         min_dist=None,
         coarse=False,
     ):
+        self._tree_kwargs = {
+            "realize": realize,
+            "meshing_cameras": meshing_cameras,
+            "cam_meshing_max_dist": cam_meshing_max_dist,
+            "coarse_mesh_placeholder": coarse_mesh_placeholder,
+            "adapt_mesh_method": adapt_mesh_method,
+            "decimate_placeholder_levels": decimate_placeholder_levels,
+            "min_dist": min_dist,
+        }
+        self._external_genome = genome
+        self._external_child_col = child_col
+        self._external_trunk_surface = trunk_surface
         super(GenericTreeFactory, self).__init__(factory_seed, coarse=coarse)
+        if genome is not None:
+            self._configure_from_genome(genome, child_col, trunk_surface)
+        else:
+            self.init_legacy_parameters()
 
+    def _sample_init_parameters(self, seed: int) -> GenericTreeParameters:
+        self._trunk_surface = weighted_sample(material_assignments.bark)
+        return GenericTreeParameters(
+            seed=seed,
+            tree_scale=uniform(0.25, 0.45),
+            max_radius=uniform(0.15, 0.25),
+            min_radius=uniform(0.01, 0.04),
+            branch_exponent=uniform(1.5, 2.5),
+            child_density=uniform(0.0, 1.0),
+            child_max_scale=uniform(1.0, 1.5),
+        )
+
+    def apply_parameters(
+        self, params: GenericTreeParameters, *, spawn_scope: bool = True
+    ) -> None:
+        if not hasattr(self, "_trunk_surface"):
+            self._trunk_surface = weighted_sample(material_assignments.bark)
+        self.scale = params.tree_scale
+        self.trunk_surface = self._trunk_surface
+        self._use_fixed_spawn_draws = spawn_scope
+        with FixedSeed(params.seed):
+            (genome, _, _), _ = random_species()
+        genome.skinning.update(
+            {
+                "Max radius": params.max_radius,
+                "Min radius": params.min_radius,
+                "Exponent": params.branch_exponent,
+            }
+        )
+        if genome.child_placement is not None:
+            genome.child_placement.update(
+                {
+                    "Density": params.child_density,
+                    "Max scale": params.child_max_scale,
+                }
+            )
+        self.genome = genome
+        self.child_col = self._external_child_col
+
+    def _run_post_init(self) -> None:
+        if self._external_genome is not None:
+            return
+        self._configure_from_genome(
+            self.genome, self._external_child_col, self._trunk_surface
+        )
+
+    def _configure_from_genome(self, genome, child_col, trunk_surface) -> None:
         self.genome = genome
         self.child_col = child_col
         self.trunk_surface = trunk_surface
-        self.realize = realize
-
-        self.cameras = meshing_cameras
-        self.cam_meshing_max_dist = cam_meshing_max_dist
-        self.adapt_mesh_method = adapt_mesh_method
-        self.decimate_placeholder_levels = decimate_placeholder_levels
-        self.coarse_mesh_placeholder = coarse_mesh_placeholder
-
-        self.min_dist = min_dist
+        kwargs = self._tree_kwargs
+        self.realize = kwargs["realize"]
+        self.cameras = kwargs["meshing_cameras"]
+        self.cam_meshing_max_dist = kwargs["cam_meshing_max_dist"]
+        self.adapt_mesh_method = kwargs["adapt_mesh_method"]
+        self.decimate_placeholder_levels = kwargs["decimate_placeholder_levels"]
+        self.coarse_mesh_placeholder = kwargs["coarse_mesh_placeholder"]
+        self.min_dist = kwargs["min_dist"]
 
     def create_placeholder(self, i, loc, rot):
         logger.debug("generating tree skeleton")
@@ -246,11 +330,17 @@ def random_species(season="summer", pine_chance=0.0):
         return treeconfigs.random_tree(tree_species_code, season), None
 
 
-def random_tree_child_factory(seed, leaf_params, leaf_type, season, **kwargs):
+def random_tree_child_factory(
+    seed, leaf_params, leaf_type, season, apply_leaf_width=False, **kwargs
+):
     if season is None:
         season = random_season()
 
     fruit_scale = 0.2
+
+    leaf_width = None
+    if apply_leaf_width and leaf_params is not None:
+        leaf_width = leaf_params.get("leaf_width")
 
     if leaf_type is None:
         return None, None
@@ -263,7 +353,7 @@ def random_tree_child_factory(seed, leaf_params, leaf_type, season, **kwargs):
     elif leaf_type == "leaf_broadleaf":
         return leaf_broadleaf.LeafFactoryBroadleaf(seed, season, **kwargs), None
     elif leaf_type == "leaf_v2":
-        return leaf_v2.LeafFactoryV2(seed, **kwargs), None
+        return leaf_v2.LeafFactoryV2(seed, leaf_width=leaf_width, **kwargs), None
     elif leaf_type == "berry":
         return leaf.BerryFactory(seed, leaf_params, **kwargs), None
     elif leaf_type == "apple":
@@ -290,7 +380,7 @@ def random_tree_child_factory(seed, leaf_params, leaf_type, season, **kwargs):
         ), None
     elif leaf_type == "flower":
         return tree_flower.TreeFlowerFactory(
-            seed, rad=uniform(0.15, 0.25), **kwargs
+            seed, rad=uniform(0.15, 0.25), leaf_width=leaf_width, **kwargs
         ), None
     elif leaf_type == "cloud":
         return CloudFactory(seed), None
@@ -299,7 +389,13 @@ def random_tree_child_factory(seed, leaf_params, leaf_type, season, **kwargs):
 
 
 def make_leaf_collection(
-    seed, leaf_params, n_leaf, leaf_types, decimate_rate=0.0, season=None
+    seed,
+    leaf_params,
+    n_leaf,
+    leaf_types,
+    decimate_rate=0.0,
+    season=None,
+    apply_leaf_width=False,
 ):
     logger.debug(f"Starting make_leaf_collection({seed=}, {n_leaf=} ...)")
 
@@ -315,7 +411,11 @@ def make_leaf_collection(
     for leaf_type in leaf_types:
         if leaf_type is not None:
             leaf_factory, _ = random_tree_child_factory(
-                seed, leaf_params, leaf_type=leaf_type, season=season
+                seed,
+                leaf_params,
+                leaf_type=leaf_type,
+                season=season,
+                apply_leaf_width=apply_leaf_width,
             )
             child_factories.append(leaf_factory)
             weights.append(1.0)
@@ -357,6 +457,7 @@ def make_twig_collection(
     leaf_types,
     season=None,
     twig_valid_dist=6,
+    apply_leaf_width=False,
 ):
     logger.debug(f"Starting make_twig_collection({seed=}, {n_leaf=}, {n_twig=}...)")
 
@@ -365,7 +466,13 @@ def make_twig_collection(
 
     if leaf_types is not None:
         child_col = make_leaf_collection(
-            seed, leaf_params, n_leaf, leaf_types, season=season, decimate_rate=0.97
+            seed,
+            leaf_params,
+            n_leaf,
+            leaf_types,
+            season=season,
+            decimate_rate=0.97,
+            apply_leaf_width=apply_leaf_width,
         )
     else:
         child_col = None
@@ -394,8 +501,22 @@ def make_branch_collection(seed, twig_col, fruit_col, n_branch, coarse=False):
     return col
 
 
+class TreeParameters(GenericTreeParameters):
+    leaf_width: Annotated[
+        float, Field(ge=0.1, le=0.6, json_schema_extra={"editable": True})
+    ]
+    alpha: Annotated[float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": True})]
+    fruit_chance_draw: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    ]
+    twig_density: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    ]
+
+
 @gin.configurable
 class TreeFactory(GenericTreeFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = TreeParameters
     n_leaf = 5
     n_twig = 2
 
@@ -437,69 +558,150 @@ class TreeFactory(GenericTreeFactory):
         return fruit_type
 
     def __init__(self, seed, season=None, coarse=False, fruit_chance=1.0, **kwargs):
-        with FixedSeed(seed):
-            if season is None:
-                season = np.random.choice(["summer", "winter", "autumn", "spring"])
+        self._season = season
+        self._fruit_chance = fruit_chance
+        self._tree_kwargs = {
+            "realize": kwargs.get("realize", False),
+            "meshing_cameras": kwargs.get("meshing_cameras"),
+            "cam_meshing_max_dist": kwargs.get("cam_meshing_max_dist", 1e7),
+            "coarse_mesh_placeholder": kwargs.get("coarse_mesh_placeholder", False),
+            "adapt_mesh_method": kwargs.get("adapt_mesh_method", "remesh"),
+            "decimate_placeholder_levels": kwargs.get("decimate_placeholder_levels", 0),
+            "min_dist": kwargs.get("min_dist"),
+        }
+        AssetFactory.__init__(self, seed, coarse)
+        self.init_legacy_parameters()
 
+    def _sample_init_parameters(self, seed: int) -> TreeParameters:
+        if self._season is None:
+            with FixedSeed(seed):
+                self._season = str(
+                    np.random.choice(["summer", "winter", "autumn", "spring"])
+                )
+        self._trunk_surface = weighted_sample(material_assignments.bark)
         with FixedSeed(seed):
-            (tree_params, twig_params, leaf_params), leaf_type = random_species(season)
-
-            leaf_type = leaf_type or self.get_leaf_type(season)
+            (_, twig_params, leaf_params), leaf_type = random_species(self._season)
+            leaf_type = leaf_type or self.get_leaf_type(self._season)
             if not isinstance(leaf_type, list):
                 leaf_type = [leaf_type]
-
-            trunk_surface = weighted_sample(material_assignments.bark)
-
-            if uniform() < fruit_chance:
-                fruit_type = self.get_fruit_type()
-            else:
-                fruit_type = None
-
-        super(TreeFactory, self).__init__(
-            seed,
-            tree_params,
-            child_col=None,
-            trunk_surface=trunk_surface,
-            coarse=coarse,
-            **kwargs,
+            self._leaf_type = leaf_type
+            self._twig_params = twig_params
+            self._leaf_params = leaf_params
+        twig_density = float(twig_params.child_placement["Density"])
+        return TreeParameters(
+            seed=seed,
+            tree_scale=uniform(0.25, 0.45),
+            max_radius=uniform(0.15, 0.25),
+            min_radius=uniform(0.01, 0.04),
+            branch_exponent=uniform(1.5, 2.5),
+            child_density=uniform(0.0, 1.0),
+            child_max_scale=uniform(1.0, 1.5),
+            leaf_width=float(leaf_params["leaf_width"]),
+            alpha=float(leaf_params["alpha"]),
+            fruit_chance_draw=uniform(),
+            twig_density=twig_density,
         )
 
-        with FixedSeed(seed):
+    def apply_parameters(
+        self, params: TreeParameters, *, spawn_scope: bool = True
+    ) -> None:
+        if not hasattr(self, "_trunk_surface"):
+            self._trunk_surface = weighted_sample(material_assignments.bark)
+        if not hasattr(self, "_season") or self._season is None:
+            with FixedSeed(params.seed):
+                self._season = str(
+                    np.random.choice(["summer", "winter", "autumn", "spring"])
+                )
+        self.scale = params.tree_scale
+        self.trunk_surface = self._trunk_surface
+        self._use_fixed_spawn_draws = spawn_scope
+        with FixedSeed(params.seed):
+            (tree_params, twig_params, leaf_params), leaf_type = random_species(
+                self._season
+            )
+            leaf_type = leaf_type or self.get_leaf_type(self._season)
+            if not isinstance(leaf_type, list):
+                leaf_type = [leaf_type]
+            self._leaf_type = leaf_type
+        tree_params.skinning.update(
+            {
+                "Max radius": params.max_radius,
+                "Min radius": params.min_radius,
+                "Exponent": params.branch_exponent,
+            }
+        )
+        if tree_params.child_placement is not None:
+            tree_params.child_placement.update(
+                {
+                    "Density": params.child_density,
+                    "Max scale": params.child_max_scale,
+                }
+            )
+        self.genome = tree_params
+        leaf_params["leaf_width"] = params.leaf_width
+        leaf_params["alpha"] = params.alpha
+        self._leaf_params = leaf_params
+        twig_params.child_placement["Density"] = params.twig_density
+        self._twig_params = twig_params
+        with FixedSeed(params.seed):
+            self._fruit_type = (
+                self.get_fruit_type()
+                if params.fruit_chance_draw < self._fruit_chance
+                else None
+            )
+
+    def _run_post_init(self) -> None:
+        GenericTreeFactory._configure_from_genome(
+            self, self.genome, None, self.trunk_surface
+        )
+        for key, value in self._tree_kwargs.items():
+            if key == "realize":
+                self.realize = value
+            elif key == "meshing_cameras":
+                self.cameras = value
+            elif key == "cam_meshing_max_dist":
+                self.cam_meshing_max_dist = value
+            elif key == "coarse_mesh_placeholder":
+                self.coarse_mesh_placeholder = value
+            elif key == "adapt_mesh_method":
+                self.adapt_mesh_method = value
+            elif key == "decimate_placeholder_levels":
+                self.decimate_placeholder_levels = value
+            elif key == "min_dist":
+                self.min_dist = value
+        with FixedSeed(self.factory_seed):
             colname = f"assets:{self}.twigs"
             use_cached = colname in bpy.data.collections
-            if use_cached == coarse:
+            if use_cached == self.coarse:
                 logger.warning(
-                    f"In {self}, encountered {use_cached=} yet {coarse=}, unexpected since twigs are typically generated only in coarse"
+                    f"In {self}, encountered {use_cached=} yet {self.coarse=}, unexpected since twigs are typically generated only in coarse"
                 )
-
             if colname not in bpy.data.collections:
                 twig_col = make_twig_collection(
-                    seed,
-                    twig_params,
-                    leaf_params,
-                    trunk_surface,
+                    self.factory_seed,
+                    self._twig_params,
+                    self._leaf_params,
+                    self.trunk_surface,
                     self.n_leaf,
                     self.n_twig,
-                    leaf_type,
-                    season=season,
+                    self._leaf_type,
+                    season=self._season,
                 )
-                if fruit_type is not None:
+                if self._fruit_type is not None:
                     fruit_col = make_leaf_collection(
-                        seed,
-                        leaf_params,
+                        self.factory_seed,
+                        self._leaf_params,
                         self.n_leaf,
-                        fruit_type,
-                        season=season,
+                        self._fruit_type,
+                        season=self._season,
                         decimate_rate=0.0,
                     )
                 else:
                     fruit_col = butil.get_collection("Empty", reuse=True)
-
                 self.child_col = make_branch_collection(
-                    seed, twig_col, fruit_col, n_branch=self.n_twig
+                    self.factory_seed, twig_col, fruit_col, n_branch=self.n_twig
                 )
                 self.child_col.name = colname
-
                 assert (
                     self.child_col.name == colname
                 ), f"Blender truncated {colname} to {self.child_col.name}"
@@ -510,15 +712,25 @@ class TreeFactory(GenericTreeFactory):
 @gin.configurable
 class BushParameters(AssetParameters):
     shrub_shape: Annotated[int, Field(ge=0, le=1, json_schema_extra={"editable": True})]
-    alpha: Annotated[float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": True})]
+    alpha: Annotated[float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": False})]
     leaf_width: Annotated[
         float, Field(ge=0.1, le=0.6, json_schema_extra={"editable": True})
     ]
     pts: Annotated[int, Field(ge=0, le=99, json_schema_extra={"editable": True})]
+    leaf_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["leaf_v2", "flower", "berry"],
+            }
+        ),
+    ] = "leaf_v2"
 
 
 @gin.configurable
-class BushFactory(ParameterizedAssetFactory, GenericTreeFactory):
+class BushFactory(GenericTreeFactory):
     parameters_model: ClassVar[type[AssetParameters]] = BushParameters
     n_leaf = 3
     n_twig = 3
@@ -530,9 +742,6 @@ class BushFactory(ParameterizedAssetFactory, GenericTreeFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BushParameters:
-        self._leaf_type = str(
-            np.random.choice(["leaf_v2", "flower", "berry"], p=[0.5, 0.5, 0])
-        )
         self._trunk_surface = weighted_sample(material_assignments.bark)
         return BushParameters(
             seed=seed,
@@ -540,19 +749,19 @@ class BushFactory(ParameterizedAssetFactory, GenericTreeFactory):
             alpha=float(np.random.rand() * 0.3),
             leaf_width=float(np.random.rand() * 0.5 + 0.1),
             pts=int(np.random.randint(100)),
+            leaf_type=str(
+                np.random.choice(["leaf_v2", "flower", "berry"], p=[0.5, 0.5, 0])
+            ),
         )
 
     def apply_parameters(self, params: BushParameters, *, spawn_scope: bool = True) -> None:
-        if not hasattr(self, "_leaf_type"):
-            self._leaf_type = str(
-                np.random.choice(["leaf_v2", "flower", "berry"], p=[0.5, 0.5, 0])
-            )
+        if not hasattr(self, "_trunk_surface"):
             self._trunk_surface = weighted_sample(material_assignments.bark)
         self.shrub_shape = params.shrub_shape
         self.alpha = params.alpha
         self.leaf_width = params.leaf_width
         self.pts = params.pts
-        self.leaf_type = self._leaf_type
+        self.leaf_type = params.leaf_type
         self.trunk_surface = self._trunk_surface
         self._use_fixed_spawn_draws = spawn_scope
 
@@ -587,6 +796,7 @@ class BushFactory(ParameterizedAssetFactory, GenericTreeFactory):
                     self.n_leaf,
                     self.n_twig,
                     self.leaf_type,
+                    apply_leaf_width=True,
                 )
                 self.child_col.name = colname
                 assert (

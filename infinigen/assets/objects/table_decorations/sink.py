@@ -25,35 +25,26 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
-def _sink_legacy_init(
-    inst: Any,
-    seed: int,
-    coarse: bool,
-    dimensions: list[float] | None = None,
-    upper_height: float | None = None,
-) -> None:
-    inst.dimensions = dimensions if dimensions is not None else [1.0, 1.0, 1.0]
-    inst.params = SinkFactory.sample_geometry_parameters(
-        inst.dimensions, upper_height=upper_height
-    )
-    material_params, scratch, edge_wear = SinkFactory.get_material_params_static()
-    inst.scratch = scratch
-    inst.edge_wear = edge_wear
-    inst.params.update(material_params)
-    inst.tap_factory = TapFactory(seed)
-
-
-class SinkParameters(LegacyBridgeParameters):
-    pass
+class SinkParameters(AssetParameters):
+    width: Annotated[float, Field(ge=0.4, le=1.0, json_schema_extra={"editable": True})]
+    depth: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": False})]
+    upper_height: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})]
+    lower_height: Annotated[float, Field(ge=0.0, le=0.01, json_schema_extra={"editable": True})]
+    hole_radius: Annotated[float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})]
+    margin: Annotated[float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})]
+    watertap_margin: Annotated[
+        float, Field(ge=0.1, le=0.12, json_schema_extra={"editable": True})
+    ]
+    protrude_above_counter: Annotated[
+        float, Field(ge=0.01, le=0.025, json_schema_extra={"editable": True})
+    ]
 
 
 class SinkFactory(ParameterizedAssetFactory, AssetFactory):
@@ -68,21 +59,59 @@ class SinkFactory(ParameterizedAssetFactory, AssetFactory):
         self.factory_seed = factory_seed
         self.init_legacy_parameters()
 
+    def _sample_material_state(self, seed: int) -> None:
+        with FixedSeed(seed):
+            params = {
+                "Sink": weighted_sample(material_assignments.metals)(),
+                "Tap": weighted_sample(material_assignments.metals)(),
+            }
+            self._material_params = {k: v() for k, v in params.items()}
+            scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+            scratch, edge_wear = material_assignments.wear_tear
+            self._scratch = None if U() > scratch_prob else scratch()
+            self._edge_wear = None if U() > edge_wear_prob else edge_wear()
+            self.tap_factory = TapFactory(seed)
+
     def _sample_init_parameters(self, seed: int) -> SinkParameters:
-        return legacy_init_to_parameters(
-            SinkParameters,
-            SinkFactory,
-            seed,
-            self.coarse,
-            self._sink_dimensions,
-            self._sink_upper_height,
-            init_fn=_sink_legacy_init,
+        upper_height = (
+            self._sink_upper_height
+            if self._sink_upper_height is not None
+            else U(0.2, 0.4)
+        )
+        self._sample_material_state(seed)
+        return SinkParameters(
+            seed=seed,
+            width=U(0.4, 1.0),
+            depth=U(0.4, 0.5),
+            upper_height=upper_height,
+            lower_height=U(0.00, 0.01),
+            hole_radius=U(0.02, 0.05),
+            margin=U(0.02, 0.05),
+            watertap_margin=U(0.1, 0.12),
+            protrude_above_counter=U(0.01, 0.025),
         )
 
     def apply_parameters(
         self, params: SinkParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        self._sample_material_state(params.seed)
+        self.dimensions = self._sink_dimensions
+        # NOTE: upper_height is overridden when factory is constructed with upper_height= kwarg.
+        self.params = {
+            "Width": params.width,
+            "Depth": params.depth,
+            "Curvature": 1.0,
+            "Upper Height": params.upper_height,
+            "Lower Height": params.lower_height,
+            "HoleRadius": params.hole_radius,
+            "Margin": params.margin,
+            "WaterTapMargin": params.watertap_margin,
+            "ProtrudeAboveCounter": params.protrude_above_counter,
+            **self._material_params,
+        }
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
+        self._use_fixed_spawn_draws = spawn_scope
 
     @staticmethod
     def get_material_params_static():
@@ -176,27 +205,17 @@ class SinkFactory(ParameterizedAssetFactory, AssetFactory):
 
 
 class TapParameters(AssetParameters):
-    base_width: Annotated[float, Field(ge=0.57, le=0.63, json_schema_extra={"editable": True})]
-    tap_head: Annotated[float, Field(ge=0.7, le=1.1, json_schema_extra={"editable": True})]
-    roation_z: Annotated[float, Field(ge=5.5, le=7.0, json_schema_extra={"editable": True})]
-    tap_height: Annotated[float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})]
+    base_width: Annotated[float, Field(ge=0.57, le=0.63, json_schema_extra={"editable": False})]
     base_radius: Annotated[float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": True})]
-    Switch_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    Y: Annotated[float, Field(ge=-0.5, le=-0.06, json_schema_extra={"editable": True})]
-    hand_type_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
-    hands_length_x: Annotated[
-        float, Field(ge=0.75, le=1.25, json_schema_extra={"editable": True})
-    ]
-    hands_length_Y: Annotated[
-        float, Field(ge=0.95, le=1.55, json_schema_extra={"editable": True})
-    ]
-    one_side_draw: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
+    hand_type_draw: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    one_side_draw: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
     different_type_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
-    length_one_side_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
 
 
 class TapFactory(ParameterizedAssetFactory, AssetFactory):
@@ -214,14 +233,10 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
             "roation_z": U(5.5, 7.0),
             "tap_height": U(0.5, 1),
             "base_radius": U(0.0, 0.3),
-            "Switch_draw": U(),
-            "Y": U(-0.5, -0.06),
-            "hand_type_draw": U(),
+            "hand_type_draw": True,
             "hands_length_x": U(0.750, 1.25),
-            "hands_length_Y": U(0.950, 1.550),
-            "one_side_draw": U(),
-            "different_type_draw": U(),
-            "length_one_side_draw": U(),
+            "one_side_draw": True,
+            "different_type_draw": True,
         }
 
     def _sample_materials(self) -> tuple[dict[str, Any], Any | None, Any | None]:
@@ -238,6 +253,8 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
         self._tap_material = materials["Tap"]
         self._scratch = scratch
         self._edge_wear = edge_wear
+        for key in ("tap_head", "roation_z", "tap_height", "hands_length_x"):
+            geometry.pop(key, None)
         return TapParameters(seed=seed, **geometry)
 
     def apply_parameters(
@@ -248,25 +265,40 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
             self._tap_material = materials["Tap"]
             self._scratch = scratch
             self._edge_wear = edge_wear
+        # NOTE: tap_head, roation_z, tap_height, and hands_length_x do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            tap_head = U(0.7, 1.1)
+            roation_z = U(5.5, 7.0)
+            tap_height = U(0.5, 1)
+            hands_length_x = U(0.750, 1.25)
+            switch = bool(U() > 0.5)
+            y = U(-0.5, -0.06)
+            hands_length_y = U(0.950, 1.550)
+            length_one_side = bool(U() > 0.8)
         self.params = {
             **params.model_dump(exclude={"seed"}),
+            "tap_head": tap_head,
+            "roation_z": roation_z,
+            "tap_height": tap_height,
+            "hands_length_x": hands_length_x,
             "Tap": self._tap_material,
-            "Switch": params.Switch_draw > 0.5,
-            "hand_type": params.hand_type_draw > 0.2,
-            "one_side": params.one_side_draw > 0.5,
-            "different_type": params.different_type_draw > 0.8,
-            "length_one_side": params.length_one_side_draw > 0.8,
+            "Switch": switch,
+            "Y": y,
+            "hands_length_Y": hands_length_y,
+            "hand_type": params.hand_type_draw,
+            "one_side": params.one_side_draw,
+            "different_type": params.different_type_draw,
+            "length_one_side": length_one_side,
         }
         for draw_key in (
-            "Switch_draw",
             "hand_type_draw",
             "one_side_draw",
             "different_type_draw",
-            "length_one_side_draw",
         ):
             self.params.pop(draw_key, None)
         self.scratch = self._scratch
         self.edge_wear = self._edge_wear
+        # NOTE: base_width effect varies with hand_type/one_side/different_type spawn branches; excluded from quartet sampling.
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **_):

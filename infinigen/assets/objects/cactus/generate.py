@@ -35,10 +35,7 @@ from .pricky_pear import PrickyPearBaseCactusFactory
 
 
 class CactusParameters(AssetParameters):
-    base_hue: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
-    texture_type_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
+    pass
 
 
 class CactusFactory(ParameterizedAssetFactory, AssetFactory):
@@ -63,16 +60,19 @@ class CactusFactory(ParameterizedAssetFactory, AssetFactory):
         weights = np.array([1] * len(factory_methods))
         return np.random.choice(factory_methods, p=weights / weights.sum())
 
+    def _sample_shader_state(self, seed: int) -> None:
+        # NOTE: base_hue and texture_type_draw are sampled on self in apply_parameters; excluded from quartet sampling (material-only, not exported geometry).
+        with FixedSeed(seed):
+            base_hue = uniform(0.2, 0.4)
+            self.base_hue = base_hue
+            self.material = surface.shaderfunc_to_material(self.shader_cactus, base_hue)
+            self._texture_type_draw = uniform()
+
     def _sample_init_parameters(self, seed: int) -> CactusParameters:
         factory_method = self._resolve_factory_method(self._init_factory_method)
         self.factory = factory_method(seed, self.coarse)
-        base_hue = uniform(0.2, 0.4)
-        self.material = surface.shaderfunc_to_material(self.shader_cactus, base_hue)
-        return CactusParameters(
-            seed=seed,
-            base_hue=base_hue,
-            texture_type_draw=uniform(),
-        )
+        self._sample_shader_state(seed)
+        return CactusParameters(seed=seed)
 
     def _ensure_factory_state(self, params: CactusParameters) -> None:
         if hasattr(self, "factory") and hasattr(self, "material"):
@@ -80,15 +80,12 @@ class CactusFactory(ParameterizedAssetFactory, AssetFactory):
         with FixedSeed(params.seed):
             factory_method = self._resolve_factory_method(self._init_factory_method)
             self.factory = factory_method(params.seed, self.coarse)
-            self.material = surface.shaderfunc_to_material(
-                self.shader_cactus, params.base_hue
-            )
 
     def apply_parameters(
         self, params: CactusParameters, *, spawn_scope: bool = True
     ) -> None:
         self._ensure_factory_state(params)
-        self._texture_type_draw = params.texture_type_draw
+        self._sample_shader_state(params.seed)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, face_size=0.01, realize=True, **params):
@@ -97,7 +94,12 @@ class CactusFactory(ParameterizedAssetFactory, AssetFactory):
         if self.factory.noise_strength > 0:
             texture_types = ["STUCCI", "MARBLE"]
             t = (
-                texture_types[int(self._texture_type_draw * len(texture_types))]
+                texture_types[
+                    min(
+                        int(self._texture_type_draw * len(texture_types)),
+                        len(texture_types) - 1,
+                    )
+                ]
                 if self._use_fixed_spawn_draws
                 else np.random.choice(texture_types)
             )
@@ -153,34 +155,34 @@ class CactusFactory(ParameterizedAssetFactory, AssetFactory):
 
 class GlobularCactusParameters(CactusParameters):
     generate_59: Annotated[
-        float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})
+        float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": False})
     ] = 0.125
     globular_83: Annotated[
-        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": True})
+        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
     ] = 0.0
     anchors: Annotated[
-        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
+        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})
     ] = 0.3
     circle: Annotated[
-        float, Field(ge=1.1, le=1.2, json_schema_extra={"editable": True})
+        float, Field(ge=1.1, le=1.2, json_schema_extra={"editable": False})
     ] = 1.15
     frequency: Annotated[
-        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": True})
+        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
     ] = 0.0
     radius: Annotated[
-        float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})
+        float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": False})
     ] = 0.75
     star_resolution: Annotated[
-        int, Field(ge=6, le=11, json_schema_extra={"editable": True})
+        int, Field(ge=6, le=11, json_schema_extra={"editable": False})
     ] = 8
     scale_x: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
     ] = 1.0
     scale_y: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
     ] = 1.0
     scale_z: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
     ] = 1.0
 
 
@@ -223,7 +225,12 @@ class GlobularCactusFactory(CactusFactory):
         if self.factory.noise_strength > 0:
             texture_types = ["STUCCI", "MARBLE"]
             t = (
-                texture_types[int(self._texture_type_draw * len(texture_types))]
+                texture_types[
+                    min(
+                        int(self._texture_type_draw * len(texture_types)),
+                        len(texture_types) - 1,
+                    )
+                ]
                 if self._use_fixed_spawn_draws
                 else np.random.choice(texture_types)
             )

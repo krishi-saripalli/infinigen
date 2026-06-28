@@ -832,7 +832,24 @@ def _flying_bird_legacy_init(
 
 
 class FlyingBirdParameters(LegacyBridgeParameters):
-    pass
+    wing_len_factor: Annotated[
+        float, Field(ge=0.6, le=1.5, json_schema_extra={"editable": True})
+    ] = 1.0
+    extension: Annotated[
+        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
+    ] = 0.9
+    wing_width: Annotated[
+        float, Field(ge=0.08, le=0.15, json_schema_extra={"editable": True})
+    ] = 0.115
+    feather_density: Annotated[
+        float, Field(ge=25.0, le=40.0, json_schema_extra={"editable": True})
+    ] = 32.5
+    eye_radius: Annotated[
+        float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
+    ] = 0.02
+    head_joint: Annotated[
+        float, Field(ge=8.0, le=28.0, json_schema_extra={"editable": True})
+    ] = 18.0
 
 
 @gin.configurable
@@ -870,7 +887,18 @@ class FlyingBirdFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_spawn_parameters(
         self, params: FlyingBirdParameters, seed: int, i: int
     ) -> FlyingBirdParameters:
-        return params.model_copy(update=_sample_flying_bird_spawn_parameters())
+        spawn = _sample_flying_bird_spawn_parameters()
+        spawn.update(
+            {
+                "wing_len_factor": clip_gaussian(1.0, 0.2, 0.6, 1.5),
+                "extension": U(0.8, 1),
+                "wing_width": U(0.08, 0.15),
+                "feather_density": U(25, 40),
+                "eye_radius": N(0.02, 0.005),
+                "head_joint": N(18, 5),
+            }
+        )
+        return params.model_copy(update=spawn)
 
     def apply_parameters(
         self, params: FlyingBirdParameters, *, spawn_scope: bool = True

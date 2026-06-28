@@ -17,10 +17,13 @@ from infinigen.assets.utils.object import join_objects, new_bbox, new_plane
 from infinigen.assets.utils.uv import wrap_sides
 from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
-from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.blender import deep_clone_obj
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
@@ -28,12 +31,18 @@ class WallArtParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": True})]
     height: Annotated[float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": True})]
     thickness: Annotated[
-        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})
+        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": False})
     ]
-    depth: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
-    frame_bevel_width: Annotated[
-        float, Field(ge=0.0025, le=0.01, json_schema_extra={"editable": True})
-    ]
+    frame_bevel_segments: Annotated[
+        int,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": [0, 1, 4],
+            }
+        ),
+    ] = 1
 
 
 class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
@@ -65,7 +74,6 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
     def _apply_internal_state(self, params: WallArtParameters) -> None:
         with FixedSeed(params.seed):
             materials = self._sample_materials(params.seed)
-            self.frame_bevel_segments = int(np.random.choice([0, 1, 4]))
         self.surface_material_gen = materials["surface_material_gen"]
         self.surface = materials["surface"]
         self.frame_surface_gen = materials["frame_surface_gen"]
@@ -73,14 +81,12 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
         self.edge_wear = materials["edge_wear"]
 
     def _sample_init_parameters(self, seed: int) -> WallArtParameters:
-        depth = uniform(0.01, 0.02)
         params = WallArtParameters(
             seed=seed,
             width=log_uniform(0.4, 2),
             height=log_uniform(0.4, 2),
             thickness=uniform(0.02, 0.05),
-            depth=depth,
-            frame_bevel_width=uniform(depth / 4, depth / 2),
+            frame_bevel_segments=1,
         )
         self._apply_internal_state(params)
         return params
@@ -90,10 +96,14 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         self.width = params.width
         self.height = params.height
+        # NOTE: thickness drives frame SOLIDIFY but visual change is intermittent when frame_bevel_segments is 0; excluded from quartet sampling.
         self.thickness = params.thickness
-        self.depth = params.depth
-        self.frame_bevel_width = params.frame_bevel_width
+        # NOTE: depth and frame_bevel_width do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.depth = uniform(0.01, 0.02)
+            self.frame_bevel_width = uniform(self.depth / 4, self.depth / 2)
         self._apply_internal_state(params)
+        self.frame_bevel_segments = params.frame_bevel_segments
         self._use_fixed_spawn_draws = spawn_scope
 
     def assign_materials(self):

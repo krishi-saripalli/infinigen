@@ -4,13 +4,14 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 import shapely
 import shapely.affinity
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.materials import plastic
@@ -27,15 +28,13 @@ from infinigen.core import tagging as t
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.surface import write_attr_data
 from infinigen.core.tags import Subpart
 from infinigen.core.util import blender as butil
 from infinigen.core.util.blender import deep_clone_obj
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 from infinigen.core.util.random import random_general as rg
 
@@ -67,8 +66,43 @@ def _wall_shelf_legacy_init(inst: WallShelfFactory, seed: int, coarse: bool) -> 
     inst.support_surface = rg(inst.support_surfaces)()
 
 
-class WallShelfParameters(LegacyBridgeParameters):
-    pass
+class WallShelfParameters(AssetParameters):
+    length: Annotated[float, Field(ge=0.3, le=0.8, json_schema_extra={"editable": True})]
+    width: Annotated[float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})]
+    thickness: Annotated[float, Field(ge=0.01, le=0.08, json_schema_extra={"editable": True})]
+    support_width: Annotated[
+        float, Field(ge=0.01, le=0.015, json_schema_extra={"editable": True})
+    ]
+    support_side: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["none", "bottom", "top", "both"],
+            }
+        ),
+    ] = "bottom"
+    plate_bevel: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": ["none", "front", "side"],
+            }
+        ),
+    ] = "none"
+    support_join: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": ["mitre", "round", "bevel"],
+            }
+        ),
+    ] = "mitre"
 
 
 class WallShelfFactory(ParameterizedAssetFactory, AssetFactory):
@@ -115,18 +149,48 @@ class WallShelfFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> WallShelfParameters:
-        return legacy_init_to_parameters(
-            WallShelfParameters,
-            WallShelfFactory,
-            seed,
-            self.coarse,
-            init_fn=_wall_shelf_legacy_init,
+        with FixedSeed(seed):
+            plate_bevel = rg(self.plate_bevels)
+            support_join = str(np.random.choice(self.support_joins))
+        return WallShelfParameters(
+            seed=seed,
+            length=log_uniform(0.3, 0.8),
+            width=log_uniform(0.1, 0.2),
+            thickness=log_uniform(0.01, 0.08),
+            support_width=log_uniform(0.01, 0.015),
+            support_side="bottom",
+            plate_bevel=plate_bevel,
+            support_join=support_join,
         )
 
     def apply_parameters(
         self, params: WallShelfParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        # NOTE: support_length_ratio does not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            AssetFactory.__init__(self, params.seed, self.coarse)
+            self.support_margin = rg(self.support_margins)
+            if self.support_margin == 0:
+                n_support = np.random.choice([2, 3, 4], p=[0.7, 0.2, 0.1])
+            else:
+                n_support = np.random.choice([2, 3], p=[0.8, 0.2])
+            self.support_locs = np.linspace(
+                -0.5 + self.support_margin, 0.5 - self.support_margin, n_support
+            )
+            self.length = params.length
+            self.width = params.width
+            self.thickness = params.thickness
+            self.support_width = params.support_width
+            self.support_thickness = self.support_width * log_uniform(0.4, 1.0)
+            self.support_length_ratio = uniform(0.7, 1.1)
+            self.support_length = params.width * self.support_length_ratio
+            self.plate_surface = rg(self.plate_surfaces)()
+            self.support_surface = rg(self.support_surfaces)()
+        self.support_side = params.support_side
+        self.plate_bevel = params.plate_bevel
+        self.support_join = params.support_join
+        self._use_fixed_spawn_draws = spawn_scope
+
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:
         box = new_bbox(

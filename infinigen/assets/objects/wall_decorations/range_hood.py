@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np

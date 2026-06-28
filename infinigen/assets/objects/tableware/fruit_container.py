@@ -24,14 +24,19 @@ from infinigen.core.placement.parameters import (
     LegacyBridgeParameters,
     ParameterizedAssetFactory,
     apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 
 
 class FruitCover:
-    def __init__(self, factory_seed=0):
+    def __init__(
+        self,
+        factory_seed=0,
+        params: FruitContainerParameters | None = None,
+        factory: "FruitContainerFactory | None" = None,
+    ):
+        self.factory = factory
         with FixedSeed(factory_seed):
             fruit_factory_fns = list(
                 subclasses(FruitFactoryGeneralFruit).difference(
@@ -46,17 +51,30 @@ class FruitCover:
             )
             self.dimension = mean(mean(o.dimensions) for o in self.col.objects)
             self.shrink_rate = max(self.dimension, 2.0)
+        self.params = params
 
     def apply(self, obj, selection=None):
+        if self.factory is not None and hasattr(self.factory, "fruit_scale"):
+            fruit_scale = self.factory.fruit_scale
+        elif self.params is not None and hasattr(self.params, "fruit_scale"):
+            fruit_scale = self.params.fruit_scale
+        else:
+            fruit_scale = uniform(0.06, 0.08)
+        if self.factory is not None and hasattr(self.factory, "spacing_factor"):
+            spacing_factor = self.factory.spacing_factor
+            scale_rand = self.factory.scale_rand
+        else:
+            spacing_factor = uniform(0.5, 0.7)
+            scale_rand = uniform(0.1, 0.3)
         for obj in obj if isinstance(obj, Iterable) else [obj]:
-            scale = uniform(0.06, 0.08) / self.shrink_rate
+            scale = fruit_scale / self.shrink_rate
             scattered = scatter_instances(
                 base_obj=obj,
                 collection=self.col,
                 density=1e3,
-                min_spacing=scale * self.dimension * uniform(0.5, 0.7),
+                min_spacing=scale * self.dimension * spacing_factor,
                 scale=scale,
-                scale_rand=uniform(0.1, 0.3),
+                scale_rand=scale_rand,
                 selection=selection,
                 ground_offset=self.dimension * 0.2 * scale,
                 apply_geo=True,
@@ -85,28 +103,49 @@ class FruitContainerFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> FruitContainerParameters:
-        return legacy_init_to_parameters(
-            FruitContainerParameters,
-            FruitContainerFactory,
-            seed,
-            self.coarse,
-            init_fn=_fruit_container_legacy_init,
-        )
+        with FixedSeed(seed):
+            inst = FruitContainerFactory.__new__(FruitContainerFactory)
+            AssetFactory.__init__(inst, seed, self.coarse)
+            _fruit_container_legacy_init(inst, seed, self.coarse)
+            data = {
+                k: v
+                for k, v in vars(inst).items()
+                if k not in ("factory_seed", "coarse")
+            }
+            return FruitContainerParameters(seed=seed, **data)
 
     def apply_parameters(
         self, params: FruitContainerParameters, *, spawn_scope: bool = True
     ) -> None:
         apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        if spawn_scope:
+            self._fruit_container_params = params
+        # NOTE: fruit_scale and base_lower do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.fruit_scale = uniform(0.06, 0.08)
+            self.base_lower = uniform(0.005, 0.015)
+        # NOTE: rim_raise, spacing_factor, and scale_rand do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.rim_raise = uniform(0.03, 0.07)
+            self.spacing_factor = uniform(0.5, 0.7)
+            self.scale_rand = uniform(0.1, 0.3)
+        if hasattr(self, "cover"):
+            del self.__dict__["cover"]
 
     @cached_property
     def cover(self):
-        return FruitCover(self.cover_seed)
+        params = getattr(self, "_fruit_container_params", None)
+        if self._use_fixed_spawn_draws:
+            return FruitCover(self.cover_seed, params, self)
+        return FruitCover(self.cover_seed, factory=self)
 
     def create_placeholder(self, **params):
         box = self.base_factory.create_placeholder(**params)
+        rim_raise = getattr(self, "rim_raise", 0.05)
+        base_lower = getattr(self, "base_lower", 0.01)
         co = read_co(box)
-        co[co[:, -1] > 0.02, -1] += 0.05
-        co[co[:, -1] < 0.02, -1] -= 0.01
+        co[co[:, -1] > 0.02, -1] += rim_raise
+        co[co[:, -1] < 0.02, -1] -= base_lower
         write_co(box, co)
         butil.apply_transform(box)
         return box

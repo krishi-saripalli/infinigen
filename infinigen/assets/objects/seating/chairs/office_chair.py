@@ -21,7 +21,10 @@ from infinigen.assets.objects.tables.cocktail_table import geometry_create_legs
 from infinigen.core import surface, tagging
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
@@ -74,45 +77,29 @@ class OfficeChairParameters(AssetParameters):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     top_profile_width: Annotated[
-        float, Field(alias="Top Profile Width", json_schema_extra={"editable": True})
-    ]
-    top_thickness: Annotated[
-        float, Field(alias="Top Thickness", json_schema_extra={"editable": True})
-    ]
-    top_front_relative_width: Annotated[
-        float,
-        Field(alias="Top Front Relative Width", json_schema_extra={"editable": True}),
-    ]
-    top_front_bent: Annotated[
-        float, Field(alias="Top Front Bent", json_schema_extra={"editable": True})
-    ]
-    top_seat_bent: Annotated[
-        float, Field(alias="Top Seat Bent", json_schema_extra={"editable": True})
-    ]
-    top_mid_bent: Annotated[
-        float, Field(alias="Top Mid Bent", json_schema_extra={"editable": True})
-    ]
-    top_mid_relative_width: Annotated[
-        float,
-        Field(alias="Top Mid Relative Width", json_schema_extra={"editable": True}),
-    ]
-    top_back_bent: Annotated[
-        float, Field(alias="Top Back Bent", json_schema_extra={"editable": True})
-    ]
-    top_back_relative_width: Annotated[
-        float,
-        Field(alias="Top Back Relative Width", json_schema_extra={"editable": True}),
-    ]
-    top_mid_pos: Annotated[
-        float, Field(alias="Top Mid Pos", json_schema_extra={"editable": True})
-    ]
-    height: Annotated[float, Field(alias="Height", json_schema_extra={"editable": True})]
-    leg_placement_bottom_relative_scale: Annotated[
         float,
         Field(
-            alias="Leg Placement Bottom Relative Scale",
+            ge=0.5,
+            le=0.6,
+            alias="Top Profile Width",
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    top_thickness: Annotated[
+        float,
+        Field(
+            ge=0.5,
+            le=0.7,
+            alias="Top Thickness",
             json_schema_extra={"editable": True},
         ),
+    ]
+    top_mid_pos: Annotated[
+        float,
+        Field(ge=0.4, le=0.6, alias="Top Mid Pos", json_schema_extra={"editable": False}),
+    ]
+    height: Annotated[
+        float, Field(ge=1.0, le=1.4, alias="Height", json_schema_extra={"editable": True})
     ]
 
 
@@ -232,21 +219,16 @@ class OfficeChairFactory(ParameterizedAssetFactory, AssetFactory):
         )
         with FixedSeed(params.seed):
             geometry, _ = self._sample_geometry_parameters(dimensions)
+        # NOTE: top profile params interact with leg_style branch (single_stand/wheeled/straight resampled each seed).
         geometry["Top Profile Width"] = params.top_profile_width
         geometry["Top Thickness"] = params.top_thickness
-        geometry["Top Front Relative Width"] = params.top_front_relative_width
-        geometry["Top Front Bent"] = params.top_front_bent
-        geometry["Top Seat Bent"] = params.top_seat_bent
-        geometry["Top Mid Bent"] = params.top_mid_bent
-        geometry["Top Mid Relative Width"] = params.top_mid_relative_width
-        geometry["Top Back Bent"] = params.top_back_bent
-        geometry["Top Back Relative Width"] = params.top_back_relative_width
+        # NOTE: top_seat_bent and top_back_bent do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            geometry["Top Seat Bent"] = uniform(-1.5, -0.4)
+            geometry["Top Back Bent"] = uniform(-1, -0.1)
         geometry["Top Mid Pos"] = params.top_mid_pos
         geometry["Height"] = params.height
         geometry["Top Height"] = params.height - params.top_thickness
-        geometry["Leg Placement Bottom Relative Scale"] = (
-            params.leg_placement_bottom_relative_scale
-        )
         with FixedSeed(params.seed):
             materials, scratch, edge_wear = self._sample_materials()
         return {**geometry, **materials}, scratch, edge_wear
@@ -258,18 +240,8 @@ class OfficeChairFactory(ParameterizedAssetFactory, AssetFactory):
                 "seed": seed,
                 "Top Profile Width": geometry["Top Profile Width"],
                 "Top Thickness": geometry["Top Thickness"],
-                "Top Front Relative Width": geometry["Top Front Relative Width"],
-                "Top Front Bent": geometry["Top Front Bent"],
-                "Top Seat Bent": geometry["Top Seat Bent"],
-                "Top Mid Bent": geometry["Top Mid Bent"],
-                "Top Mid Relative Width": geometry["Top Mid Relative Width"],
-                "Top Back Bent": geometry["Top Back Bent"],
-                "Top Back Relative Width": geometry["Top Back Relative Width"],
                 "Top Mid Pos": geometry["Top Mid Pos"],
                 "Height": geometry["Height"],
-                "Leg Placement Bottom Relative Scale": geometry[
-                    "Leg Placement Bottom Relative Scale"
-                ],
             }
         )
 

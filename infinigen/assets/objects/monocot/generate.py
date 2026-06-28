@@ -6,16 +6,20 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.utils.mesh import polygon_angles
 from infinigen.assets.utils.object import join_objects
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.math import FixedSeed
 
@@ -28,7 +32,12 @@ from .veratrum import VeratrumMonocotFactory
 
 
 class MonocotParameters(AssetParameters):
-    pass
+    cluster_n: Annotated[
+        int, Field(ge=1, le=5, json_schema_extra={"editable": False})
+    ] = 1
+    cluster_radius: Annotated[
+        float, Field(ge=0.08, le=0.16, json_schema_extra={"editable": False})
+    ] = 0.12
 
 
 class MonocotFactory(ParameterizedAssetFactory, AssetFactory):
@@ -69,9 +78,6 @@ class MonocotFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> MonocotParameters:
         self._factory_method = self._resolve_factory_method(seed)
-        self._cluster_n = 1
-        self._cluster_angles: tuple[float, ...] = ()
-        self._cluster_radius: tuple[float, ...] = ()
         return MonocotParameters(seed=seed)
 
     def _is_grass_method(self, factory_method: type) -> bool:
@@ -87,13 +93,13 @@ class MonocotFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> MonocotParameters:
         if not self._is_grass_method(self._factory_method):
             return params
-        n = np.random.randint(1, 6)
-        angles = polygon_angles(n, np.pi / 4, np.pi * 2)
-        radius = uniform(0.08, 0.16, n)
-        self._cluster_n = n
-        self._cluster_angles = tuple(float(a) for a in angles)
-        self._cluster_radius = tuple(float(r) for r in radius)
-        return params
+        n = int(np.random.randint(1, 6))
+        return params.model_copy(
+            update={
+                "cluster_n": n,
+                "cluster_radius": float(uniform(0.08, 0.16)),
+            }
+        )
 
     def apply_parameters(
         self, params: MonocotParameters, *, spawn_scope: bool = True
@@ -103,9 +109,12 @@ class MonocotFactory(ParameterizedAssetFactory, AssetFactory):
         self.factory: MonocotGrowthFactory = self._factory_method(
             self.factory_seed, self.coarse
         )
-        self.cluster_n = getattr(self, "_cluster_n", 1)
-        self.cluster_angles = getattr(self, "_cluster_angles", ())
-        self.cluster_radius = getattr(self, "_cluster_radius", ())
+        n = params.cluster_n
+        self.cluster_n = n
+        self.cluster_angles = tuple(
+            float(a) for a in polygon_angles(n, np.pi / 4, np.pi * 2)
+        )
+        self.cluster_radius = tuple(float(params.cluster_radius) for _ in range(n))
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, i, **params) -> bpy.types.Object:

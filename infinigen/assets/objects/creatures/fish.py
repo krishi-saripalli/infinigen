@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import gin
@@ -16,6 +16,7 @@ import numpy as np
 from numpy.random import normal as N
 from numpy.random import randint
 from numpy.random import uniform as U
+from pydantic import Field
 
 from infinigen.assets import materials
 from infinigen.assets.composition import material_assignments
@@ -33,10 +34,7 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory, make_asset_collection
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
@@ -102,15 +100,16 @@ def fish_fin_cloth_sim_params():
     return res
 
 
-def fish_genome():
+def fish_genome(p: FishParameters | None = None):
     temp_dict = defaultdict(
         lambda: 0.1, {"body_fish_eel": 0.01, "body_fish_puffer": 0.001}
     )
+    body_var = p.body_var if p is not None else U(0.3, 1)
     body = genome.part(
         parts.generic_nurbs.NurbsBody(
             prefix="body_fish",
             tags=["body"],
-            var=U(0.3, 1),
+            var=body_var,
             temperature=temp_dict,
             shoulder_ik_ts=[0.0, 0.3, 0.6, 1.0],
             n_bones=15,
@@ -118,8 +117,9 @@ def fish_genome():
         )
     )
 
-    if U() < 0.9:
-        n_dorsal = 1  # if U() < 0.6 else randint(1, 4)
+    has_dorsal_fin = p.has_dorsal_fin if p is not None else U() < 0.9
+    if has_dorsal_fin:
+        n_dorsal = 1
         coord = (U(0.3, 0.45), 1, 0.7)
         for i in range(n_dorsal):
             dorsal_fin = parts.ridged_fin.FishFin(
@@ -135,7 +135,8 @@ def fish_genome():
     def rot(r):
         return np.array((20, r, -205)) + N(0, 7, 3)
 
-    if U() < 0.8:
+    has_pectoral_fins = p.has_pectoral_fins if p is not None else U() < 0.8
+    if has_pectoral_fins:
         pectoral_fin = parts.ridged_fin.FishFin(fin_params((0.1, 0.5, 0.3)))
         coord = (U(0.65, 0.8), U(55, 65) / 180, 0.9)
         for side in [-1, 1]:
@@ -147,7 +148,8 @@ def fish_genome():
                 side=side,
             )
 
-    if U() < 0.8:
+    has_pelvic_fins = p.has_pelvic_fins if p is not None else U() < 0.8
+    if has_pelvic_fins:
         pelvic_fin = parts.ridged_fin.FishFin(fin_params((0.08, 0.5, 0.25)))
         coord = (U(0.5, 0.65), U(8, 15) / 180, 0.8)
         for side in [-1, 1]:
@@ -159,7 +161,8 @@ def fish_genome():
                 side=side,
             )
 
-    if U() < 0.8:
+    has_hind_fins = p.has_hind_fins if p is not None else U() < 0.8
+    if has_hind_fins:
         hind_fin = parts.ridged_fin.FishFin(fin_params((0.1, 0.5, 0.3)))
         coord = (U(0.2, 0.3), N(36, 5) / 180, 0.9)
         for side in [-1, 1]:
@@ -171,8 +174,11 @@ def fish_genome():
                 side=side,
             )
 
-    angle = U(140, 170)
-    tail_fin = parts.ridged_fin.FishFin(fin_params((0.12, 0.5, 0.35)), rig=False)
+    angle = p.tail_angle if p is not None else U(140, 170)
+    tail_fin_length = p.tail_fin_length if p is not None else 0.12
+    tail_fin = parts.ridged_fin.FishFin(
+        fin_params((tail_fin_length, 0.5, 0.35)), rig=False
+    )
     for vdir in [-1, 1]:
         genome.attach(
             genome.part(tail_fin),
@@ -181,7 +187,8 @@ def fish_genome():
             joint=Joint((0, -angle * vdir, 0)),
         )
 
-    eye_fac = parts.eye.MammalEye({"Eyelids": False, "Radius": N(0.036, 0.01)})
+    eye_radius = p.eye_radius if p is not None else N(0.036, 0.01)
+    eye_fac = parts.eye.MammalEye({"Eyelids": False, "Radius": eye_radius})
     coord = (0.9, 0.6, 0.9)
     for side in [-1, 1]:
         genome.attach(
@@ -291,8 +298,34 @@ def _fish_legacy_init(
     inst.eye_material = materials.creature.FishEye()
 
 
-class FishParameters(LegacyBridgeParameters):
-    pass
+class FishParameters(AssetParameters):
+    has_dorsal_fin: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
+    has_pectoral_fins: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
+    has_pelvic_fins: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
+    has_hind_fins: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
+    body_var: Annotated[
+        float, Field(ge=0.3, le=1.0, json_schema_extra={"editable": True})
+    ]
+    species_variety: Annotated[
+        float, Field(ge=0.05, le=0.45, json_schema_extra={"editable": True})
+    ]
+    tail_angle: Annotated[
+        float, Field(ge=140.0, le=170.0, json_schema_extra={"editable": True})
+    ]
+    eye_radius: Annotated[
+        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})
+    ]
+    tail_fin_length: Annotated[
+        float, Field(ge=0.08, le=0.16, json_schema_extra={"editable": True})
+    ]
 
 
 @gin.configurable
@@ -318,22 +351,43 @@ class FishFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> FishParameters:
-        return legacy_init_to_parameters(
-            FishParameters,
-            FishFactory,
-            seed,
-            self.coarse,
-            self._fish_bvh,
-            self._fish_animation_mode,
-            self._fish_species_variety,
-            self._fish_clothsim_skin,
-            init_fn=_fish_legacy_init,
+        species_variety = (
+            self._fish_species_variety
+            if self._fish_species_variety is not None
+            else clip_gaussian(0.2, 0.1, 0.05, 0.45)
+        )
+        return FishParameters(
+            seed=seed,
+            has_dorsal_fin=bool(U() < 0.9),
+            has_pectoral_fins=bool(U() < 0.8),
+            has_pelvic_fins=bool(U() < 0.8),
+            has_hind_fins=bool(U() < 0.8),
+            body_var=U(0.3, 1),
+            species_variety=species_variety,
+            tail_angle=U(140, 170),
+            eye_radius=N(0.036, 0.01),
+            tail_fin_length=U(0.08, 0.16),
         )
 
     def apply_parameters(
         self, params: FishParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _fish_legacy_init(
+                self,
+                params.seed,
+                self.coarse,
+                self._fish_bvh,
+                self._fish_animation_mode,
+                params.species_variety,
+                self._fish_clothsim_skin,
+            )
+        self.species_variety = params.species_variety
+        self.species_genome = fish_genome(params)
+        if spawn_scope:
+            self._fish_params = params
+        self._use_fixed_spawn_draws = spawn_scope
+
 
     def apply_materials(self, obj):
         if obj.name.find("Nurb") >= 0:
@@ -349,8 +403,11 @@ class FishFactory(ParameterizedAssetFactory, AssetFactory):
         self.eye_material.apply(joining.get_parts(obj, False, "Eyeball"))
 
     def create_asset(self, i, **kwargs):
+        fish_params = self._fish_params if self._use_fixed_spawn_draws else None
         instance_genome = genome.interp_genome(
-            self.species_genome, fish_genome(), self.species_variety
+            self.species_genome,
+            fish_genome(fish_params),
+            self.species_variety,
         )
 
         root, parts = creature.genome_to_creature(

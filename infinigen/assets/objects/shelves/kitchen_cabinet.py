@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.materials.wood.plywood import (
     shader_shelves_black_wood,
@@ -26,10 +27,8 @@ from infinigen.core import surface, tagging
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
-    LegacyBridgeParameters,
+    AssetParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
@@ -366,7 +365,10 @@ class KitchenCabinetBaseFactory(AssetFactory):
 
 
 class KitchenCabinetParameters(AssetParameters):
-    pass
+    # NOTE: ignored when factory constructed with preset dimensions (_init_dimensions).
+    depth: Annotated[float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": False})]
+    width: Annotated[float, Field(ge=1.0, le=4.0, json_schema_extra={"editable": True})]
+    height: Annotated[float, Field(ge=0.5, le=1.3, json_schema_extra={"editable": True})]
 
 
 def _kitchen_cabinet_legacy_init(
@@ -399,23 +401,61 @@ class KitchenCabinetFactory(ParameterizedAssetFactory, KitchenCabinetBaseFactory
         AssetFactory.__init__(self, factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
+    def _apply_geometry_parameters(self, params: KitchenCabinetParameters) -> None:
+        if self._init_dimensions is not None:
+            depth, width, height = self._init_dimensions
+        else:
+            depth, width, height = params.depth, params.width, params.height
+        self.dimensions = (depth, width, height)
+        bottom_board_height = getattr(self, "bottom_board_height", 0.06)
+        num_h = max(int((height - bottom_board_height) / 0.3), 1)
+        self.frame_params = {
+            "Dimensions": (depth, width, height),
+            "shelf_depth": depth - 0.01,
+            "shelf_cell_height": [
+                (height - bottom_board_height) / num_h for _ in range(num_h)
+            ],
+            "side_board_thickness": getattr(self, "side_board_thickness", 0.02),
+            "division_board_thickness": getattr(
+                self, "division_board_thickness", 0.02
+            ),
+            "bottom_board_height": bottom_board_height,
+        }
+        n_cells = max(int(width / 0.45), 1)
+        intervals = np.random.uniform(0.55, 1.0, size=(n_cells,))
+        intervals = intervals / intervals.sum() * width
+        self.cabinet_widths = intervals.tolist()
+
     def _sample_init_parameters(self, seed: int) -> KitchenCabinetParameters:
-        return KitchenCabinetParameters(seed=seed)
+        return KitchenCabinetParameters(
+            seed=seed,
+            depth=uniform(0.25, 0.35),
+            width=uniform(1.0, 4.0),
+            height=uniform(0.5, 1.3),
+        )
 
     def apply_parameters(
         self, params: KitchenCabinetParameters, *, spawn_scope: bool = True
     ) -> None:
         with FixedSeed(params.seed):
-            _kitchen_cabinet_legacy_init(
-                self,
-                params.seed,
-                self.coarse,
-                dimensions=self._init_dimensions,
-                drawer_only=self._init_drawer_only,
-            )
+            self.dimensions = self._init_dimensions
+            self.drawer_only = self._init_drawer_only
+            self.frame_params = {}
+            self.material_params = {}
+            self.cabinet_widths = []
+            self.frame_fac = LargeShelfBaseFactory(params.seed)
+            self.door_fac = CabinetDoorBaseFactory(params.seed)
+            self.drawer_fac = CabinetDrawerBaseFactory(params.seed)
+            # NOTE: side_board_thickness, bottom_board_height, and division_board_thickness do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            self.side_board_thickness = uniform(0.015, 0.025)
+            self.bottom_board_height = uniform(0.04, 0.08)
+            self.division_board_thickness = uniform(0.015, 0.025)
+            self._apply_geometry_parameters(params)
         self._use_fixed_spawn_draws = spawn_scope
 
     def sample_params(self):
+        if self.frame_params:
+            return self.frame_params
         params = dict()
         if self.dimensions is None:
             dimensions = (uniform(0.25, 0.35), uniform(1.0, 4.0), uniform(0.5, 1.3))

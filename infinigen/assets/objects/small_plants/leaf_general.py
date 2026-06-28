@@ -14,23 +14,32 @@ from pydantic import Field
 
 from infinigen.assets.objects.trees.utils import mesh
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
 
 
 class LeafParameters(AssetParameters):
+    use_wave: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    flip_leaf: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = False
     width_noise: Annotated[
-        float, Field(ge=-1.0, le=1.0, json_schema_extra={"editable": True})
+        float, Field(ge=-1.0, le=1.0, json_schema_extra={"editable": False})
     ] = 0.0
     wave_height: Annotated[
-        float, Field(ge=-0.9, le=0.9, json_schema_extra={"editable": True})
+        float, Field(ge=-0.9, le=0.9, json_schema_extra={"editable": False})
     ] = 0.0
     wave_width: Annotated[
-        float, Field(ge=0.55, le=0.95, json_schema_extra={"editable": True})
+        float, Field(ge=0.55, le=0.95, json_schema_extra={"editable": False})
     ] = 0.75
     wave_speed: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
     ] = 0.5
 
 
@@ -44,7 +53,12 @@ class LeafFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> LeafParameters:
-        params = LeafParameters(seed=seed)
+        genome = self._genome_override or {}
+        params = LeafParameters(
+            seed=seed,
+            use_wave=True,
+            flip_leaf=bool(genome.get("flip_leaf", False)),
+        )
         if self._genome_override:
             updates = {
                 k: v
@@ -73,9 +87,9 @@ class LeafFactory(ParameterizedAssetFactory, AssetFactory):
         self.genome = {
             "leaf_width": genome_override.get("leaf_width", 0.5),
             "alpha": genome_override.get("alpha", 0.3),
-            "use_wave": genome_override.get("use_wave", True),
+            "use_wave": params.use_wave,
             "x_offset": genome_override.get("x_offset", 0.0),
-            "flip_leaf": genome_override.get("flip_leaf", False),
+            "flip_leaf": params.flip_leaf,
             "z_scaling": genome_override.get("z_scaling", 0.0),
             "width_rand": genome_override.get("width_rand", 0.33),
         }

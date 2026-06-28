@@ -2,27 +2,25 @@ from __future__ import annotations
 
 # Copyright (C) 2023, Princeton University.
 # This source code is licensed under the BSD 3-Clause license found in the LICENSE file in the root directory of this source tree.
-
 # Authors: Beining Han
+from typing import Annotated, ClassVar
 
 import bpy
 from numpy.random import randint, uniform
+from pydantic import Field
 
 from infinigen.assets.materials.plastic.plastic_rough import shader_rough_plastic
 from infinigen.assets.materials.wood.wood import shader_wood
 from infinigen.core import surface, tagging
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
-from typing import Any, ClassVar
+from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
-from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -487,47 +485,69 @@ class PlateBaseFactory(AssetFactory):
 
 
 
-def _plate_on_rack_legacy_init(inst: Any, seed: int, coarse: bool, params=None) -> None:
-    if params is None:
-        params = {}
-    inst.params = params
-    inst.rack_fac = PlateRackBaseFactory(seed, params=params)
-    inst.plate_fac = PlateBaseFactory(seed, params=params)
+class PlateOnRackBaseParameters(AssetParameters):
+    num_rack: Annotated[int, Field(ge=3, le=6, json_schema_extra={"editable": True})]
+    rack_height: Annotated[float, Field(ge=0.08, le=0.15, json_schema_extra={"editable": False})]
+    rack_spacing: Annotated[float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": True})]
+    base_gap: Annotated[float, Field(ge=0.05, le=0.08, json_schema_extra={"editable": True})]
+    base_width: Annotated[float, Field(ge=0.015, le=0.03, json_schema_extra={"editable": False})]
+    plate_thickness: Annotated[
+        float, Field(ge=0.01, le=0.025, json_schema_extra={"editable": False})
+    ]
+    plate_radius_extra: Annotated[
+        float, Field(ge=0.025, le=0.06, json_schema_extra={"editable": True})
+    ] = 0.04
 
-
-class PlateOnRackBaseParameters(LegacyBridgeParameters):
-    pass
 
 class PlateOnRackBaseFactory(ParameterizedAssetFactory, AssetFactory):
     parameters_model: ClassVar[type[AssetParameters]] = PlateOnRackBaseParameters
 
     def __init__(self, factory_seed, params=None, coarse=False):
-        if params is None:
-            params = {}
-        self._init_params = params
+        self._init_params = params or {}
         super(PlateOnRackBaseFactory, self).__init__(factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
+    def _build_asset_params(self, params: PlateOnRackBaseParameters) -> dict:
+        base_length = (params.num_rack - 1) * params.rack_spacing + 0.03
+        return {
+            **self._init_params,
+            "num_rack": params.num_rack,
+            "rack_radius": getattr(self, "rack_radius", uniform(0.0025, 0.006)),
+            "rack_height": params.rack_height,
+            "base_length": base_length,
+            "base_gap": params.base_gap,
+            "base_width": params.base_width,
+            "radius": params.base_gap + params.plate_radius_extra,
+            "thickness": params.plate_thickness,
+        }
+
     def _sample_init_parameters(self, seed: int) -> PlateOnRackBaseParameters:
-        return legacy_init_to_parameters(
-            PlateOnRackBaseParameters,
-            PlateOnRackBaseFactory,
-            seed,
-            self.coarse,
-            self._init_params,
-            init_fn=_plate_on_rack_legacy_init,
+        base_gap = uniform(0.05, 0.08)
+        return PlateOnRackBaseParameters(
+            seed=seed,
+            num_rack=randint(3, 7),
+            rack_height=uniform(0.08, 0.15),
+            rack_spacing=uniform(0.03, 0.06),
+            base_gap=base_gap,
+            base_width=uniform(0.015, 0.03),
+            plate_thickness=uniform(0.01, 0.025),
+            plate_radius_extra=uniform(0.025, 0.06),
         )
 
     def apply_parameters(
         self, params: PlateOnRackBaseParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        # NOTE: rack_radius does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.rack_radius = uniform(0.0025, 0.006)
+        asset_params = self._build_asset_params(params)
+        self.params = asset_params
+        self.rack_fac = PlateRackBaseFactory(params.seed, params=asset_params)
+        self.plate_fac = PlateBaseFactory(params.seed, params=asset_params)
+        self._use_fixed_spawn_draws = spawn_scope
 
     def get_asset_params(self, i):
-        if self.params.get("base_gap", None) is None:
-            d = uniform(0.05, 0.08)
-            self.rack_fac.params["base_gap"] = d
-            self.plate_fac.params["radius"] = d + uniform(0.025, 0.06)
+        pass
 
     def create_asset(self, i, **params):
         self.get_asset_params(i)
@@ -537,4 +557,4 @@ class PlateOnRackBaseFactory(ParameterizedAssetFactory, AssetFactory):
         plate.location = place_points[0]
         butil.apply_transform(plate, loc=True)
 
-        return plate
+        return butil.join_objects([rack, plate])

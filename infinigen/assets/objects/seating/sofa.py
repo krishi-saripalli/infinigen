@@ -10,7 +10,7 @@ from typing import Annotated, Any, ClassVar
 import bpy
 import numpy as np
 from numpy.random import uniform
-from pydantic import ConfigDict, Field
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.core import surface, tagging
@@ -20,10 +20,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
@@ -1398,53 +1395,131 @@ def nodegroup_sofa_geometry(nw: NodeWrangler):
     )
 
 
-def sofa_parameter_distribution(dimensions=None):
-    if dimensions is None:
-        dimensions = (
-            uniform(0.95, 1.1),
-            clip_gaussian(1.75, 0.75, 0.9, 3),
-            uniform(0.69, 0.97),
-        )
+ARM_TYPE_BY_NAME = {
+    "square": ARM_TYPE_SQUARE,
+    "round": ARM_TYPE_ROUND,
+    "angular": ARM_TYPE_ANGULAR,
+}
 
+
+def _sample_sofa_leaf_switches() -> dict[str, Any]:
     return {
-        "Dimensions": dimensions,
-        "Arm Dimensions": (
-            uniform(1, 1),
-            uniform(0.06, 0.15),
-            uniform(0.5, 0.75),
+        "arm_style": str(
+            np.random.choice(["square", "round", "angular"], p=[0.4, 0.2, 0.4])
         ),
-        "Back Dimensions": (uniform(0.15, 0.25), 0.0000, uniform(0.5, 0.75)),
-        "Seat Dimensions": (dimensions[0], uniform(0.7, 1), uniform(0.15, 0.3)),
-        "Foot Dimensions": (uniform(0.07, 0.25), 0.06, 0.06),
-        "Baseboard Height": uniform(0.05, 0.09),
-        "Backrest Width": uniform(0.1, 0.2),
-        "Seat Margin": uniform(0.9700, 1),
-        "Backrest Angle": uniform(-0.15, -0.5),
-        "Arm Type": np.random.choice(
-            [ARM_TYPE_SQUARE, ARM_TYPE_ROUND, ARM_TYPE_ANGULAR], p=[0.4, 0.2, 0.4]
-        ),
+        "round_legs": bool(uniform() > 0.5),
+        "seat_sections": 1 if uniform() > 0.2 else 4,
+    }
+
+
+def _sample_sofa_geometry_spawn_state(dimensions: tuple[float, float, float]) -> dict[str, Any]:
+    return {
+        "arm_dimensions": (uniform(1, 1), uniform(0.06, 0.15), uniform(0.5, 0.75)),
+        "back_dimensions": (uniform(0.15, 0.25), 0.0, uniform(0.5, 0.75)),
+        "seat_depth": uniform(0.7, 1),
+        "seat_height": uniform(0.15, 0.3),
+        "foot_dimensions": (uniform(0.07, 0.25), 0.06, 0.06),
+        "seat_margin": uniform(0.97, 1),
+        "baseboard_height": uniform(0.05, 0.09),
         "arm_width": uniform(0.6, 0.9),
-        "Arm_height": uniform(0.7, 1.0),
+        "arm_height": uniform(0.7, 1.0),
         "arms_angle": uniform(0.0, 1.08),
-        "Footrest": True if uniform() > 0.5 and dimensions[1] > 2 else False,
-        "Count": 1 if uniform() > 0.2 else 4,
-        "Scaling footrest": uniform(1.3, 1.6),
-        "Reflection": 1 if uniform() > 0.5 else -1,
-        "leg_type": True if uniform() > 0.5 else False,
+        "footrest": bool(uniform() > 0.5) and dimensions[1] > 2,
+        "scaling_footrest": uniform(1.3, 1.6),
+        "reflection": 1 if uniform() > 0.5 else -1,
         "leg_dimensions": uniform(0.4, 0.9),
         "leg_z": uniform(1.1, 2.5),
         "leg_faces": uniform(4, 25),
     }
 
 
-def _sofa_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
-    inst.params = sofa_parameter_distribution()
-    sofa_fabric_gen_class = weighted_sample(material_assignments.fabrics)
-    inst.sofa_fabric = sofa_fabric_gen_class()()
+class SofaParameters(AssetParameters):
+    depth: Annotated[float, Field(ge=0.9, le=3.0, json_schema_extra={"editable": True})]
+    seat_sections: Annotated[
+        int,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": [1, 4],
+            }
+        ),
+    ] = 4
 
 
-class SofaParameters(LegacyBridgeParameters):
-    pass
+class ArmChairParameters(AssetParameters):
+    width: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})]
+    height: Annotated[float, Field(ge=0.69, le=0.97, json_schema_extra={"editable": True})]
+    arm_width: Annotated[
+        float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": False})
+    ]
+    arm_style: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["square", "round", "angular"],
+            }
+        ),
+    ] = "square"
+    round_legs: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = False
+
+
+def _build_sofa_geometry_params(
+    params: SofaParameters | ArmChairParameters,
+    spawn: dict[str, Any],
+    *,
+    sofa_runtime: dict[str, Any] | None = None,
+    dimensions: tuple[float, float, float] | None = None,
+) -> dict[str, Any]:
+    if dimensions is None:
+        dimensions = (params.width, params.depth, params.height)
+    width, depth, height = dimensions
+    baseboard_height = spawn["baseboard_height"]
+    arm_width = spawn["arm_width"]
+    if isinstance(params, SofaParameters):
+        assert sofa_runtime is not None
+        baseboard_height = sofa_runtime["baseboard_height"]
+        footrest = spawn["footrest"]
+        seat_sections = params.seat_sections
+        backrest_width = sofa_runtime["backrest_width"]
+        backrest_angle = sofa_runtime["backrest_angle"]
+        arm_style = sofa_runtime["arm_style"]
+        round_legs = sofa_runtime["round_legs"]
+    else:
+        arm_width = params.arm_width
+        footrest = False
+        seat_sections = 1
+        backrest_width = params.backrest_width
+        backrest_angle = params.backrest_angle
+        arm_style = params.arm_style
+        round_legs = params.round_legs
+    return {
+        "Dimensions": dimensions,
+        "Arm Dimensions": spawn["arm_dimensions"],
+        "Back Dimensions": spawn["back_dimensions"],
+        "Seat Dimensions": (width, spawn["seat_depth"], spawn["seat_height"]),
+        "Foot Dimensions": spawn["foot_dimensions"],
+        "Baseboard Height": baseboard_height,
+        "Backrest Width": backrest_width,
+        "Seat Margin": spawn["seat_margin"],
+        "Backrest Angle": backrest_angle,
+        "Arm Type": ARM_TYPE_BY_NAME[arm_style],
+        "arm_width": arm_width,
+        "Arm_height": spawn["arm_height"],
+        "arms_angle": spawn["arms_angle"],
+        "Footrest": footrest,
+        "Count": seat_sections,
+        "Scaling footrest": spawn["scaling_footrest"],
+        "Reflection": spawn["reflection"],
+        "leg_type": round_legs,
+        "leg_dimensions": spawn["leg_dimensions"],
+        "leg_z": spawn["leg_z"],
+        "leg_faces": spawn["leg_faces"],
+    }
 
 
 class SofaFactory(ParameterizedAssetFactory, AssetFactory):
@@ -1454,19 +1529,67 @@ class SofaFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed)
         self.init_legacy_parameters()
 
+    def _sample_material(self, seed: int) -> Any:
+        with FixedSeed(seed):
+            sofa_fabric_gen_class = weighted_sample(material_assignments.fabrics)
+            return sofa_fabric_gen_class()()
+
     def _sample_init_parameters(self, seed: int) -> SofaParameters:
-        return legacy_init_to_parameters(
-            SofaParameters,
-            SofaFactory,
-            seed,
-            False,
-            init_fn=_sofa_legacy_init,
+        self._sofa_fabric = self._sample_material(seed)
+        depth = clip_gaussian(1.75, 0.75, 0.9, 3)
+        leaf = _sample_sofa_leaf_switches()
+        return SofaParameters(
+            seed=seed,
+            depth=depth,
+            seat_sections=leaf["seat_sections"],
         )
+
+    def _sample_spawn_parameters(
+        self, params: SofaParameters, seed: int, i: int
+    ) -> SofaParameters:
+        with FixedSeed(params.seed):
+            width = uniform(0.95, 1.1)
+            height = uniform(0.69, 0.97)
+        dimensions = (width, params.depth, height)
+        with FixedSeed(seed + i):
+            self._geometry_spawn = _sample_sofa_geometry_spawn_state(dimensions)
+        self._sofa_width = width
+        self._sofa_height = height
+        return params
 
     def apply_parameters(
         self, params: SofaParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        if not hasattr(self, "_sofa_fabric"):
+            self._sofa_fabric = self._sample_material(params.seed)
+        # NOTE: width and height do not elicit a clear visual change in exported geometry (swamped by seat_sections/footrest spawn); sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            width = uniform(0.95, 1.1)
+            height = uniform(0.69, 0.97)
+        dimensions = (width, params.depth, height)
+        if spawn_scope and hasattr(self, "_geometry_spawn"):
+            spawn = self._geometry_spawn
+            width = getattr(self, "_sofa_width", width)
+            height = getattr(self, "_sofa_height", height)
+            dimensions = (width, params.depth, height)
+        else:
+            with FixedSeed(params.seed):
+                spawn = _sample_sofa_geometry_spawn_state(dimensions)
+        # NOTE: backrest_width, backrest_angle, baseboard_height, arm_style, round_legs do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            leaf = _sample_sofa_leaf_switches()
+            sofa_runtime = {
+                "backrest_width": uniform(0.1, 0.2),
+                "backrest_angle": uniform(-0.15, -0.5),
+                "baseboard_height": uniform(0.05, 0.09),
+                "arm_style": leaf["arm_style"],
+                "round_legs": leaf["round_legs"],
+            }
+        self.sofa_fabric = self._sofa_fabric
+        self.params = _build_sofa_geometry_params(
+            params, spawn, sofa_runtime=sofa_runtime, dimensions=dimensions
+        )
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **_):
         obj = butil.spawn_vert()
@@ -1495,32 +1618,6 @@ class SofaFactory(ParameterizedAssetFactory, AssetFactory):
         return hipoly
 
 
-class ArmChairParameters(AssetParameters):
-    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
-
-    dimensions: tuple[float, float, float] = Field(alias="Dimensions")
-    arm_dimensions: tuple[float, float, float] = Field(alias="Arm Dimensions")
-    back_dimensions: tuple[float, float, float] = Field(alias="Back Dimensions")
-    seat_dimensions: tuple[float, float, float] = Field(alias="Seat Dimensions")
-    foot_dimensions: tuple[float, float, float] = Field(alias="Foot Dimensions")
-    baseboard_height: float = Field(alias="Baseboard Height")
-    backrest_width: float = Field(alias="Backrest Width")
-    seat_margin: float = Field(alias="Seat Margin")
-    backrest_angle: float = Field(alias="Backrest Angle")
-    arm_type: int = Field(alias="Arm Type")
-    arm_width: float = Field(alias="arm_width")
-    arm_height: float = Field(alias="Arm_height")
-    arms_angle: float = Field(alias="arms_angle")
-    footrest: bool = Field(alias="Footrest")
-    count: int = Field(alias="Count")
-    scaling_footrest: float = Field(alias="Scaling footrest")
-    reflection: int = Field(alias="Reflection")
-    leg_type: bool = Field(alias="leg_type")
-    leg_dimensions: float = Field(alias="leg_dimensions")
-    leg_z: float = Field(alias="leg_z")
-    leg_faces: float = Field(alias="leg_faces")
-
-
 class ArmChairFactory(SofaFactory):
     parameters_model: ClassVar[type[AssetParameters]] = ArmChairParameters
 
@@ -1529,14 +1626,38 @@ class ArmChairFactory(SofaFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> ArmChairParameters:
-        dimensions = (uniform(0.8, 1), uniform(0.9, 1.1), uniform(0.69, 0.97))
-        geometry = sofa_parameter_distribution(dimensions=dimensions)
-        return ArmChairParameters.model_validate({"seed": seed, **geometry})
+        self._sofa_fabric = self._sample_material(seed)
+        leaf = _sample_sofa_leaf_switches()
+        return ArmChairParameters(
+            seed=seed,
+            width=uniform(0.8, 1.0),
+            height=uniform(0.69, 0.97),
+            arm_width=uniform(0.6, 0.9),
+            arm_style=leaf["arm_style"],
+            round_legs=leaf["round_legs"],
+        )
 
     def apply_parameters(
         self, params: ArmChairParameters, *, spawn_scope: bool = True
     ) -> None:
-        sofa_fabric_gen_class = weighted_sample(material_assignments.fabrics)
-        self.sofa_fabric = sofa_fabric_gen_class()()
-        self.params = params.model_dump(exclude={"seed"}, by_alias=True)
+        if not hasattr(self, "_sofa_fabric"):
+            self._sofa_fabric = self._sample_material(params.seed)
+        # NOTE: depth does not elicit a clear visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            depth = uniform(0.9, 1.1)
+        dimensions = (params.width, depth, params.height)
+        if spawn_scope and hasattr(self, "_geometry_spawn"):
+            spawn = self._geometry_spawn
+        else:
+            with FixedSeed(params.seed):
+                spawn = _sample_sofa_geometry_spawn_state(dimensions)
+        # NOTE: backrest_width and backrest_angle do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            backrest_width = uniform(0.1, 0.2)
+            backrest_angle = uniform(-0.15, -0.5)
+        self.sofa_fabric = self._sofa_fabric
+        geometry = _build_sofa_geometry_params(params, spawn, dimensions=dimensions)
+        geometry["Backrest Width"] = backrest_width
+        geometry["Backrest Angle"] = backrest_angle
+        self.params = geometry
         self._use_fixed_spawn_draws = spawn_scope

@@ -4,10 +4,9 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-import bmesh
-
 from typing import Annotated, ClassVar
 
+import bmesh
 import bpy
 import numpy as np
 from numpy.random import uniform
@@ -20,11 +19,14 @@ from infinigen.assets.utils.object import new_bbox, new_cube
 from infinigen.core import surface
 from infinigen.core.nodes import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.surface import write_attr_data
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
-from infinigen.core.util.random import random_general as rg
 
 
 def make_coiled(
@@ -81,25 +83,20 @@ def make_coiled(
 
 class MattressParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.9, le=2.0, json_schema_extra={"editable": True})]
-    size: Annotated[float, Field(ge=2.0, le=2.4, json_schema_extra={"editable": True})]
+    size: Annotated[float, Field(ge=2.0, le=2.4, json_schema_extra={"editable": False})]
     thickness: Annotated[
         float, Field(ge=0.2, le=0.35, json_schema_extra={"editable": True})
     ]
-    dot_distance: Annotated[
-        float, Field(ge=0.16, le=0.2, json_schema_extra={"editable": True})
-    ]
-    dot_size: Annotated[
-        float, Field(ge=0.005, le=0.02, json_schema_extra={"editable": True})
-    ]
-    dot_depth: Annotated[
-        float, Field(ge=0.04, le=0.08, json_schema_extra={"editable": True})
-    ]
-    coiled_smooth_draw: Annotated[
-        float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.75
-    wrapped_pressure: Annotated[
-        float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})
-    ] = 0.15
+    mattress_style: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["coiled", "wrapped"],
+            }
+        ),
+    ] = "coiled"
 
 
 class MattressFactory(ParameterizedAssetFactory, AssetFactory):
@@ -113,26 +110,13 @@ class MattressFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> MattressParameters:
         surface_gen_class = weighted_sample(material_assignments.fabrics)
-        self.type = rg(self.types)
         self.surface = surface_gen_class()()
         return MattressParameters(
             seed=seed,
             width=log_uniform(0.9, 2.0),
             size=uniform(2, 2.4),
             thickness=uniform(0.2, 0.35),
-            dot_distance=log_uniform(0.16, 0.2),
-            dot_size=uniform(0.005, 0.02),
-            dot_depth=uniform(0.04, 0.08),
-        )
-
-    def _sample_spawn_parameters(
-        self, params: MattressParameters, seed: int, i: int
-    ) -> MattressParameters:
-        return params.model_copy(
-            update={
-                "coiled_smooth_draw": uniform(0.5, 1.0),
-                "wrapped_pressure": uniform(0.1, 0.2),
-            }
+            mattress_style="coiled",
         )
 
     def apply_parameters(
@@ -141,13 +125,17 @@ class MattressFactory(ParameterizedAssetFactory, AssetFactory):
         self.width = params.width
         self.size = params.size
         self.thickness = params.thickness
-        self.dot_distance = params.dot_distance
-        self.dot_size = params.dot_size
-        self.dot_depth = params.dot_depth
+        # NOTE: dot_distance, dot_size, dot_depth do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.dot_distance = log_uniform(0.16, 0.2)
+            self.dot_size = uniform(0.005, 0.02)
+            self.dot_depth = uniform(0.04, 0.08)
+        self.type = params.mattress_style
+        # NOTE: coiled_smooth_draw and wrapped_pressure resampled in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.coiled_smooth_draw = uniform(0.5, 1.0)
+            self.wrapped_pressure = uniform(0.1, 0.2)
         self._use_fixed_spawn_draws = spawn_scope
-        if spawn_scope:
-            self.coiled_smooth_draw = params.coiled_smooth_draw
-            self.wrapped_pressure = params.wrapped_pressure
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:
         return new_bbox(

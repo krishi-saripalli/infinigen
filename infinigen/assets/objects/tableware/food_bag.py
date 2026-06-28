@@ -33,15 +33,13 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class FoodBagParameters(AssetParameters):
-    length: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": True})]
-    is_packet_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    # NOTE: width/depth/curve resampled from length inside is_packet branch, masking direct length effect.
+    length: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": False})]
+    is_packet: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
     extrude_length: Annotated[
-        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})
-    ]
-    texture_shared_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": False})
     ]
 
 
@@ -63,21 +61,25 @@ class FoodBagFactory(ParameterizedAssetFactory, AssetFactory):
             curve_profile = uniform(4, 8)
         return width, depth, curve_profile
 
+    def _sample_texture_shared(self, seed: int) -> bool:
+        # NOTE: texture_shared is sampled on self in apply_parameters; excluded from quartet sampling (material-only, not exported geometry).
+        with FixedSeed(seed):
+            return bool(uniform() < 0.2)
+
     def _sample_init_parameters(self, seed: int) -> FoodBagParameters:
         length = uniform(0.1, 0.3)
-        is_packet_draw = uniform()
+        is_packet = bool(uniform() < 0.6)
         return FoodBagParameters(
             seed=seed,
             length=length,
-            is_packet_draw=is_packet_draw,
+            is_packet=is_packet,
             extrude_length=uniform(0.05, 0.1),
-            texture_shared_draw=uniform(),
         )
 
     def apply_parameters(
         self, params: FoodBagParameters, *, spawn_scope: bool = True
     ) -> None:
-        is_packet = params.is_packet_draw < 0.6
+        is_packet = params.is_packet
         with FixedSeed(params.seed):
             width, depth, curve_profile = self._sample_shape(params.length, is_packet)
             surface_mat = weighted_sample(material_assignments.graphicdesign)()()
@@ -89,7 +91,7 @@ class FoodBagFactory(ParameterizedAssetFactory, AssetFactory):
         self.depth = depth
         self.curve_profile = curve_profile
         self.extrude_length = params.extrude_length
-        self.texture_shared = params.texture_shared_draw < 0.2
+        self.texture_shared = self._sample_texture_shared(params.seed)
         self.surface = surface_mat
         self._use_fixed_spawn_draws = spawn_scope
 

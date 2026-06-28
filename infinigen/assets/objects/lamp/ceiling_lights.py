@@ -27,7 +27,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
-from infinigen.core.util.math import clip_gaussian
+from infinigen.core.util.math import clip_gaussian, FixedSeed
 
 
 class CeilingLightParameters(AssetParameters):
@@ -43,9 +43,6 @@ class CeilingLightParameters(AssetParameters):
         float, Field(ge=0.5, le=1.1, json_schema_extra={"editable": True})
     ]
     Curvature: Annotated[float, Field(ge=0.1, le=0.5, json_schema_extra={"editable": True})]
-    beveler_mult: Annotated[
-        float, Field(ge=1.0, le=3.0, json_schema_extra={"editable": True})
-    ]
 
 
 class CeilingLightFactory(ParameterizedAssetFactory, AssetFactory):
@@ -131,12 +128,17 @@ class CeilingLightFactory(ParameterizedAssetFactory, AssetFactory):
         return CeilingLightParameters(
             seed=seed,
             **geometry,
-            beveler_mult=U(1, 3),
         )
 
     def apply_parameters(
         self, params: CeilingLightParameters, *, spawn_scope: bool = True
     ) -> None:
+        if not hasattr(self, "_mesh_materials"):
+            materials, scratch, edge_wear = self._sample_materials()
+            self._mesh_materials = materials
+            self.scratch = scratch
+            self.edge_wear = edge_wear
+            self.light_factory = PointLampFactory(params.seed)
         self.params = {
             "Radius": params.Radius,
             "Thickness": params.Thickness,
@@ -146,7 +148,9 @@ class CeilingLightFactory(ParameterizedAssetFactory, AssetFactory):
             "Curvature": params.Curvature,
             **self._mesh_materials,
         }
-        self.beveler = BevelSharp(mult=params.beveler_mult)
+        # NOTE: beveler_mult does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.beveler = BevelSharp(mult=U(1, 3))
         self._use_fixed_spawn_draws = spawn_scope
 
     def get_material_params(self):

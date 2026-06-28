@@ -22,21 +22,21 @@ from infinigen.core.util import blender as butil
 
 
 class GrassTuftParameters(AssetParameters):
-    length_mean: Annotated[float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})]
+    length_mean: Annotated[float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": False})]
     length_std: Annotated[float, Field(ge=0.2, le=0.5, json_schema_extra={"editable": True})]
     curl_mean: Annotated[float, Field(ge=10.0, le=70.0, json_schema_extra={"editable": True})]
     curl_std: Annotated[float, Field(ge=0.0, le=0.6, json_schema_extra={"editable": True})]
     curl_power: Annotated[float, Field(ge=0.3, le=2.1, json_schema_extra={"editable": True})]
     blade_width_pct_mean: Annotated[
-        float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
+        float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": False})
     ]
-    blade_width_var: Annotated[float, Field(ge=0.0, le=0.05, json_schema_extra={"editable": True})]
-    taper_var: Annotated[float, Field(ge=0.0, le=0.1, json_schema_extra={"editable": True})]
+    blade_width_var: Annotated[float, Field(ge=0.0, le=0.05, json_schema_extra={"editable": False})]
+    taper_var: Annotated[float, Field(ge=0.0, le=0.1, json_schema_extra={"editable": False})]
     base_spread: Annotated[
         float, Field(ge=0.0, le=0.037414, json_schema_extra={"editable": True})
     ]
     base_angle_var: Annotated[float, Field(ge=0.0, le=15.0, json_schema_extra={"editable": True})]
-    n_blades: Annotated[int, Field(ge=30, le=59, json_schema_extra={"editable": True})] = 45
+    n_blades: Annotated[int, Field(ge=30, le=59, json_schema_extra={"editable": False})] = 45
 
 
 class GrassTuftFactory(ParameterizedAssetFactory, AssetFactory):

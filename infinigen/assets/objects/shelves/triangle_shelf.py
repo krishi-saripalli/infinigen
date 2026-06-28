@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import normal, uniform
+from pydantic import Field
 
 from infinigen.assets.materials.wood.plywood import get_shelf_material
 from infinigen.core import surface, tagging
@@ -18,11 +19,9 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -1348,7 +1347,7 @@ class TriangleShelfBaseFactory(AssetFactory):
             params["side_board_height"] = uniform(0.02, 0.04)
         if params.get("bottom_layer_height", None) is None:
             params["bottom_layer_height"] = uniform(0.05, 0.1)
-        if params.get("shelf_layer_height", None) is None:
+        if params.get("top_layer_height", None) is None:
             params["top_layer_height"] = params["leg_length"] - uniform(0.02, 0.07)
         if params.get("board_material", None) is None:
             params["board_material"] = np.random.choice(
@@ -1396,8 +1395,16 @@ def _triangle_shelf_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
     inst.params = inst.sample_params()
 
 
-class TriangleShelfParameters(LegacyBridgeParameters):
-    pass
+class TriangleShelfParameters(AssetParameters):
+    leg_length: Annotated[float, Field(ge=0.45, le=0.75, json_schema_extra={"editable": True})]
+    board_width: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
+    leg_width: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})]
+    board_thickness: Annotated[
+        float, Field(ge=0.01, le=0.025, json_schema_extra={"editable": False})
+    ]
+    bottom_layer_height: Annotated[
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": False})
+    ]
 
 
 class TriangleShelfFactory(ParameterizedAssetFactory, TriangleShelfBaseFactory):
@@ -1409,18 +1416,34 @@ class TriangleShelfFactory(ParameterizedAssetFactory, TriangleShelfBaseFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> TriangleShelfParameters:
-        return legacy_init_to_parameters(
-            TriangleShelfParameters,
-            TriangleShelfFactory,
-            seed,
-            self.coarse,
-            init_fn=_triangle_shelf_legacy_init,
+        leg_length = np.clip(normal(0.6, 0.05), 0.45, 0.75)
+        return TriangleShelfParameters(
+            seed=seed,
+            leg_length=leg_length,
+            board_width=np.clip(normal(0.3, 0.03), 0.2, 0.4),
+            leg_width=uniform(0.01, 0.03),
+            board_thickness=uniform(0.01, 0.025),
+            bottom_layer_height=uniform(0.05, 0.1),
         )
 
     def apply_parameters(
         self, params: TriangleShelfParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            TriangleShelfBaseFactory.__init__(self, params.seed, {}, self.coarse)
+            # NOTE: board_extrude_length does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            board_extrude_length = uniform(0.03, 0.07)
+            # NOTE: board_thickness and bottom_layer_height effects gated by resampled top_layer_height; excluded from quartet sampling.
+            self.params = {
+                "leg_length": params.leg_length,
+                "board_width": params.board_width,
+                "leg_width": params.leg_width,
+                "board_thickness": params.board_thickness,
+                "bottom_layer_height": params.bottom_layer_height,
+                "board_extrude_length": board_extrude_length,
+                "top_layer_height": params.leg_length - uniform(0.02, 0.07),
+            }
+        self._use_fixed_spawn_draws = spawn_scope
 
     def sample_params(self):
         stored = getattr(self, "params", None)

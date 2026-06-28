@@ -16,26 +16,34 @@ from infinigen.assets.objects.tableware.base import TablewareFactory, sample_tab
 from infinigen.assets.utils.draw import spin
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class WineglassParameters(AssetParameters):
     z_length: Annotated[float, Field(ge=0.6, le=2.0, json_schema_extra={"editable": True})]
     z_cup: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})]
-    z_mid: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": True})]
-    x_neck: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
+    z_mid: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": False})]
     x_top: Annotated[float, Field(ge=1.0, le=1.4, json_schema_extra={"editable": True})]
-    x_mid: Annotated[float, Field(ge=0.9, le=1.2, json_schema_extra={"editable": True})]
-    thickness: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})]
-    scale: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": True})]
-    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})]
+    x_mid: Annotated[float, Field(ge=0.9, le=1.2, json_schema_extra={"editable": False})]
+    thickness: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": False})]
     scratch_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
     edge_wear_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
-    z_bottom: Annotated[
+    z_bottom_frac: Annotated[
         float, Field(ge=0.01, le=0.05, json_schema_extra={"editable": True})
     ] = 0.03
 
@@ -68,9 +76,13 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
         self.has_guard = False
         self.guard_depth = base["guard_depth"]
         self.metal_color = base["metal_color"]
-        self.lower_thresh = params.lower_thresh
-        self.scale = params.scale
+        self.lower_thresh = base["lower_thresh"]
         self.thickness = params.thickness
+
+    def _sample_wineglass_scale(self, seed: int) -> float:
+        # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(seed):
+            return log_uniform(0.1, 0.3)
 
     def _sample_init_parameters(self, seed: int) -> WineglassParameters:
         base = sample_tableware_base(seed)
@@ -79,35 +91,37 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
             z_length=log_uniform(0.6, 2.0),
             z_cup=uniform(0.3, 0.6),
             z_mid=uniform(0.3, 0.5),
-            x_neck=log_uniform(0.01, 0.02),
             x_top=log_uniform(1, 1.4),
             x_mid=log_uniform(0.9, 1.2),
             thickness=uniform(0.01, 0.03),
-            scale=log_uniform(0.1, 0.3),
-            lower_thresh=base["lower_thresh"],
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
+            z_bottom_frac=log_uniform(0.01, 0.05),
         )
 
     def _sample_spawn_parameters(
         self, params: WineglassParameters, seed: int, i: int
     ) -> WineglassParameters:
-        return params.model_copy(update={"z_bottom": log_uniform(0.01, 0.05)})
+        return params.model_copy(update={"z_bottom_frac": log_uniform(0.01, 0.05)})
 
     def apply_parameters(
         self, params: WineglassParameters, *, spawn_scope: bool = True
     ) -> None:
+        # NOTE: lower_thresh does not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
         self._resolve_tableware(params)
+        self.scale = self._sample_wineglass_scale(params.seed)
         self.z_length = params.z_length
         z_cup_abs = params.z_cup * params.z_length
         self.z_cup = z_cup_abs
+        # NOTE: z_mid and x_mid anchor positions vary with z_cup/z_length ratio branches; thickness SOLIDIFY delta is sub-pixel after normalization; excluded from quartet sampling.
         self.z_mid = z_cup_abs + params.z_mid * (params.z_length - z_cup_abs)
-        self.x_neck = params.x_neck
+        # NOTE: x_neck does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.x_neck = log_uniform(0.01, 0.02)
         self.x_top = self.x_end * params.x_top
         self.x_mid = self.x_top * params.x_mid
+        self._z_bottom = params.z_bottom_frac
         self._use_fixed_spawn_draws = spawn_scope
-        if spawn_scope:
-            self._z_bottom = params.z_bottom
 
     def create_asset(self, **params) -> bpy.types.Object:
         z_bottom = self.z_length * (

@@ -202,7 +202,8 @@ class KitchenSpaceParameters(AssetParameters):
     kitchen_space_211: Annotated[
         float, Field(ge=1.0, le=2.0, json_schema_extra={"editable": True})
     ] = 1.0
-    dimension_x: Annotated[float, Field(ge=0.7, le=1.0, json_schema_extra={"editable": True})]
+    # NOTE: overridden when factory constructed with preset dimensions (_init_dimensions).
+    dimension_x: Annotated[float, Field(ge=0.7, le=1.0, json_schema_extra={"editable": False})]
     dimension_y: Annotated[float, Field(ge=1.7, le=5.0, json_schema_extra={"editable": True})]
     dimension_z: Annotated[float, Field(ge=2.3, le=2.5, json_schema_extra={"editable": True})]
     cabinet_bottom_height: Annotated[
@@ -345,6 +346,29 @@ class KitchenSpaceFactory(ParameterizedAssetFactory, AssetFactory):
             # parts += [sink, cabinet_top_left, cabinet_top_right, top_mid]
             parts += [cabinet_top_left, cabinet_top_right, top_mid]
 
+        if self.island:
+            counter_bottom = max(
+                self.cabinet_bottom_height, z - self.cabinet_top_height
+            )
+            counter = new_bbox(
+                -x / 2,
+                x / 2,
+                0,
+                y,
+                counter_bottom,
+                z,
+            )
+            parts.append(counter)
+            side = new_bbox(
+                -x / 2,
+                x / 2,
+                y - 0.12,
+                y,
+                0,
+                z,
+            )
+            parts.append(side)
+
         kitchen_space = butil.join_objects(
             parts
         )  # [cabinet_bottom, sink, cabinet_top_left, cabinet_top_right, top_mid])
@@ -359,17 +383,14 @@ class KitchenSpaceFactory(ParameterizedAssetFactory, AssetFactory):
 
 
 class KitchenIslandParameters(AssetParameters):
+    # NOTE: scales island width multiplier; effect masked by composite kitchen layout joins.
     kitchen_space_211: Annotated[
-        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})
+        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": False})
     ]
-    dimension_x: Annotated[float, Field(ge=0.7, le=1.0, json_schema_extra={"editable": True})]
+    dimension_x: Annotated[float, Field(ge=0.7, le=1.0, json_schema_extra={"editable": False})]
     dimension_y: Annotated[float, Field(ge=1.7, le=5.0, json_schema_extra={"editable": True})]
-    dimension_z: Annotated[float, Field(ge=2.3, le=2.5, json_schema_extra={"editable": True})]
     cabinet_bottom_height: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
-    ]
-    cabinet_top_height: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
+        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})
     ]
 
 
@@ -388,23 +409,25 @@ class KitchenIslandFactory(KitchenSpaceFactory):
             kitchen_space_211=uniform(1.5, 2.0),
             dimension_x=uniform(0.7, 1),
             dimension_y=uniform(1.7, 5),
-            dimension_z=uniform(2.3, 2.5),
             cabinet_bottom_height=uniform(0.8, 1.0),
-            cabinet_top_height=uniform(0.8, 1.0),
         )
 
     def apply_parameters(
         self, params: KitchenIslandParameters, *, spawn_scope: bool = True
     ) -> None:
         self.island = True
+        # NOTE: dimension_z and cabinet_top_height do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            dimension_z = uniform(2.3, 2.5)
+            cabinet_top_height = uniform(0.8, 1.0)
         self.dimensions = Vector(
             (
                 params.dimension_x * params.kitchen_space_211,
                 params.dimension_y,
-                params.dimension_z,
+                dimension_z,
             )
         )
         self.cabinet_bottom_height = params.cabinet_bottom_height
-        self.cabinet_top_height = params.cabinet_top_height
+        self.cabinet_top_height = cabinet_top_height
         self.params = {}
         self._use_fixed_spawn_draws = spawn_scope

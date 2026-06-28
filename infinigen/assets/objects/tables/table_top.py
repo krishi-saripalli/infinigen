@@ -3,8 +3,12 @@
 
 # Authors: Yiming Zuo
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
 
 import bpy
+from pydantic import Field
 
 from infinigen.assets.objects.tables.table_utils import (
     nodegroup_create_cap,
@@ -15,8 +19,11 @@ from infinigen.core import tags as t
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.tagging import tag_nodegroup
-from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -300,24 +307,58 @@ def geometry_generate_table_top_wrapper(nw: NodeWrangler, **kwargs):
     )
 
 
-class TableTopFactory(AssetFactory):
+class TableTopParameters(AssetParameters):
+    profile_n_gon: Annotated[
+        int, Field(ge=4, le=8, json_schema_extra={"editable": True})
+    ]
+    profile_width: Annotated[
+        float, Field(ge=0.5, le=1.5, json_schema_extra={"editable": True})
+    ]
+    profile_aspect_ratio: Annotated[
+        float, Field(ge=0.5, le=2.0, json_schema_extra={"editable": True})
+    ]
+    profile_fillet_ratio: Annotated[
+        float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": False})
+    ]
+    thickness: Annotated[
+        float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})
+    ]
+    vertical_fillet_ratio: Annotated[
+        float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": True})
+    ]
+
+
+class TableTopFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = TableTopParameters
+
     def __init__(self, factory_seed, coarse=False):
         super(TableTopFactory, self).__init__(factory_seed, coarse=coarse)
+        self.init_legacy_parameters()
 
-        with FixedSeed(factory_seed):
-            self.params = self.sample_parameters()
+    def _sample_init_parameters(self, seed: int) -> TableTopParameters:
+        return TableTopParameters(
+            seed=seed,
+            profile_n_gon=4,
+            profile_width=1.0,
+            profile_aspect_ratio=1.0,
+            profile_fillet_ratio=0.2,
+            thickness=0.1,
+            vertical_fillet_ratio=0.2,
+        )
 
-    @staticmethod
-    def sample_parameters():
-        # all in meters
-        return {
-            "Profile N-gon": 4,
-            "Profile Width": 1.0,
-            "Profile Aspect Ratio": 1.0,
-            "Profile Fillet Ratio": 0.2000,
-            "Thickness": 0.1000,
-            "Vertical Fillet Ratio": 0.2000,
+    def apply_parameters(
+        self, params: TableTopParameters, *, spawn_scope: bool = True
+    ) -> None:
+        # NOTE: profile_fillet_ratio visual effect depends on profile_n_gon (fillet invisible on low vertex counts); excluded from quartet sampling.
+        self.params = {
+            "Profile N-gon": params.profile_n_gon,
+            "Profile Width": params.profile_width,
+            "Profile Aspect Ratio": params.profile_aspect_ratio,
+            "Profile Fillet Ratio": params.profile_fillet_ratio,
+            "Thickness": params.thickness,
+            "Vertical Fillet Ratio": params.vertical_fillet_ratio,
         }
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):
         bpy.ops.mesh.primitive_plane_add(

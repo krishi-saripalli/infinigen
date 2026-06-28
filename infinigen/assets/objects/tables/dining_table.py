@@ -5,10 +5,11 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import bpy
 from numpy.random import choice, normal, uniform
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.objects.tables.legs.single_stand import (
@@ -34,10 +35,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.surface import NoApply
 from infinigen.core.util.math import FixedSeed
@@ -200,20 +198,48 @@ def geometry_assemble_table(nw: NodeWrangler, **kwargs):
     )
 
 
-def _table_dining_legacy_init(
-    inst: Any, seed: int, coarse: bool, dimensions: Any = None
-) -> None:
-    inst.dimensions = dimensions
-    inst.params = TableDiningFactory.sample_geometry_parameters(dimensions)
-    inst.clothes_scatter = NoApply()
-    material_params, scratch, edge_wear = TableDiningFactory.get_material_params_static()
-    inst.scratch = scratch
-    inst.edge_wear = edge_wear
-    inst.params.update(material_params)
+class TableDiningParameters(AssetParameters):
+    width: Annotated[float, Field(ge=0.91, le=1.16, json_schema_extra={"editable": True})]
+    dimensions: Annotated[float, Field(ge=0.65, le=0.85, json_schema_extra={"editable": True})]
+    top_thickness: Annotated[
+        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": False})
+    ]
+    strecher_relative_pos: Annotated[
+        float, Field(ge=0.2, le=0.6, json_schema_extra={"editable": False})
+    ]
+    dining_table_230: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 1.0
+    strecher_increament: Annotated[
+        int,
+        Field(
+            json_schema_extra={"editable": False, "kind": "enum", "choices": [0, 1, 2]}
+        ),
+    ] = 1
 
 
-class TableDiningParameters(LegacyBridgeParameters):
-    pass
+class CoffeeTableParameters(TableDiningParameters):
+    width: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})]
+    dimensions: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": True})]
+    # NOTE: effect depends on sampled leg style.
+    top_thickness: Annotated[
+        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": False})
+    ]
+    # NOTE: only applies when Leg Style is straight.
+    strecher_relative_pos: Annotated[
+        float, Field(ge=0.2, le=0.6, json_schema_extra={"editable": False})
+    ]
+
+
+class SideTableParameters(TableDiningParameters):
+    width: Annotated[float, Field(ge=0.45, le=0.65, json_schema_extra={"editable": True})]
+    dimensions: Annotated[float, Field(ge=0.4, le=0.65, json_schema_extra={"editable": True})]
+    top_thickness: Annotated[
+        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": False})
+    ]
+    strecher_relative_pos: Annotated[
+        float, Field(ge=0.2, le=0.6, json_schema_extra={"editable": False})
+    ]
 
 
 class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
@@ -224,127 +250,161 @@ class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
         super(TableDiningFactory, self).__init__(factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> TableDiningParameters:
-        return legacy_init_to_parameters(
-            TableDiningParameters,
-            TableDiningFactory,
-            seed,
-            self.coarse,
-            self._table_dimensions,
-            init_fn=_table_dining_legacy_init,
-        )
+    def _sample_materials(self, seed: int) -> tuple[dict[str, Any], Any | None, Any | None]:
+        with FixedSeed(seed):
+            material_params = {
+                "TopMaterial": weighted_sample(material_assignments.table_top)(),
+                "LegMaterial": weighted_sample(material_assignments.tableware)(),
+            }
+            wrapped_params = {k: v() for k, v in material_params.items()}
+            scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+            scratch_fn, edge_wear_fn = material_assignments.wear_tear
+            scratch = None if uniform() > scratch_prob else scratch_fn()
+            edge_wear = None if uniform() > edge_wear_prob else edge_wear_fn()
+            return wrapped_params, scratch, edge_wear
 
-    def apply_parameters(
-        self, params: TableDiningParameters, *, spawn_scope: bool = True
-    ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+    def _sample_model_field(self, field_name: str) -> float:
+        field_schema = self.parameters_model.model_json_schema()["properties"][field_name]
+        return uniform(field_schema["minimum"], field_schema["maximum"])
 
-    @staticmethod
-    def get_material_params_static():
-        params = {
-            "TopMaterial": weighted_sample(material_assignments.table_top)(),
-            "LegMaterial": weighted_sample(material_assignments.tableware)(),
-        }
-        wrapped_params = {k: v() for k, v in params.items()}
+    def _resolve_table_dimensions(
+        self, params: TableDiningParameters, spawn: dict[str, Any]
+    ) -> tuple[float, float, float]:
+        if self._table_dimensions is not None:
+            return self._table_dimensions
+        return spawn["length"], params.width, params.dimensions
 
-        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-        scratch, edge_wear = material_assignments.wear_tear
-        scratch = None if uniform() > scratch_prob else scratch()
-        edge_wear = None if uniform() > edge_wear_prob else edge_wear()
-
-        return wrapped_params, scratch, edge_wear
-
-    def get_material_params(self):
-        return self.get_material_params_static()
-
-    @staticmethod
-    def sample_geometry_parameters(dimensions):
-        if dimensions is None:
-            width = uniform(0.91, 1.16)
-
-            if uniform() < 0.7:
-                # oblong
+    def _sample_geometry_spawn_state(self, params: TableDiningParameters) -> dict[str, Any]:
+        if self._table_dimensions is not None:
+            x, y, _z = self._table_dimensions
+            length = x
+            width = y
+        else:
+            width = params.width
+            if params.dining_table_230 < 0.7:
                 length = uniform(1.4, 2.8)
             else:
-                # approx square
                 length = width * normal(1, 0.1)
-
-            dimensions = (length, width, uniform(0.65, 0.85))
-
-        # all in meters
-        x, y, z = dimensions
-
-        NGon = 4
-
         leg_style = choice(["straight", "single_stand", "square"], p=[0.5, 0.1, 0.4])
-        # leg_style = choice(['straight'])
-
         if leg_style == "single_stand":
             leg_number = 2
-            leg_diameter = uniform(0.22 * x, 0.28 * x)
-
+            leg_diameter = uniform(0.22 * length, 0.28 * length)
             leg_curve_ctrl_pts = [
                 (0.0, uniform(0.1, 0.2)),
                 (0.5, uniform(0.1, 0.2)),
                 (0.9, uniform(0.2, 0.3)),
                 (1.0, 1.0),
             ]
-
             top_scale = uniform(0.6, 0.7)
             bottom_scale = 1.0
-
         elif leg_style == "square":
             leg_number = 2
             leg_diameter = uniform(0.07, 0.10)
-
             leg_curve_ctrl_pts = None
-
             top_scale = 0.8
             bottom_scale = 1.0
-
         elif leg_style == "straight":
             leg_diameter = uniform(0.05, 0.07)
-
             leg_number = 4
-
             leg_curve_ctrl_pts = [
                 (0.0, 1.0),
                 (0.4, uniform(0.85, 0.95)),
                 (1.0, uniform(0.4, 0.6)),
             ]
-
             top_scale = 0.8
             bottom_scale = uniform(1.0, 1.2)
-
         else:
             raise NotImplementedError
-
-        top_thickness = uniform(0.03, 0.06)
-
-        parameters = {
-            "Top Profile N-gon": NGon,
-            "Top Profile Width": 1.414 * x,
-            "Top Profile Aspect Ratio": y / x,
-            "Top Profile Fillet Ratio": uniform(0.0, 0.02),
-            "Top Thickness": top_thickness,
-            "Top Vertical Fillet Ratio": uniform(0.1, 0.3),
-            # 'Top Material': choice(['marble', 'tiled_wood', 'metal', 'fabric'], p=[.3, .3, .2, .2]),
-            "Height": z,
-            "Top Height": z - top_thickness,
-            "Leg Number": leg_number,
-            "Leg Style": leg_style,
-            "Leg NGon": 4,
-            "Leg Placement Top Relative Scale": top_scale,
-            "Leg Placement Bottom Relative Scale": bottom_scale,
-            "Leg Height": 1.0,
-            "Leg Diameter": leg_diameter,
-            "Leg Curve Control Points": leg_curve_ctrl_pts,
-            # 'Leg Material': choice(['metal', 'wood', 'glass', 'plastic']),
-            "Strecher Relative Pos": uniform(0.2, 0.6),
-            "Strecher Increament": choice([0, 1, 2]),
+        return {
+            "length": length,
+            "width": width,
+            "leg_style": leg_style,
+            "leg_number": leg_number,
+            "leg_diameter": leg_diameter,
+            "leg_curve_ctrl_pts": leg_curve_ctrl_pts,
+            "top_scale": top_scale,
+            "bottom_scale": bottom_scale,
         }
 
-        return parameters
+    def _build_geometry_params(
+        self, params: TableDiningParameters, spawn: dict[str, Any]
+    ) -> dict[str, Any]:
+        x, y, z = self._resolve_table_dimensions(params, spawn)
+        return {
+            "Top Profile N-gon": 4,
+            "Top Profile Width": 1.414 * x,
+            "Top Profile Aspect Ratio": y / x,
+            "Top Profile Fillet Ratio": self.top_profile_fillet_ratio,
+            # NOTE: top_thickness effect depends on sampled leg_style branch.
+            "Top Thickness": params.top_thickness,
+            "Top Vertical Fillet Ratio": self.top_vertical_fillet_ratio,
+            "Height": z,
+            "Top Height": z - params.top_thickness,
+            "Leg Number": spawn["leg_number"],
+            "Leg Style": spawn["leg_style"],
+            "Leg NGon": 4,
+            "Leg Placement Top Relative Scale": spawn["top_scale"],
+            "Leg Placement Bottom Relative Scale": spawn["bottom_scale"],
+            "Leg Height": 1.0,
+            "Leg Diameter": spawn["leg_diameter"],
+            "Leg Curve Control Points": spawn["leg_curve_ctrl_pts"],
+            # NOTE: strecher_relative_pos only affects geometry when leg_style is straight (~50% of seeds).
+            "Strecher Relative Pos": params.strecher_relative_pos,
+            "Strecher Increament": params.strecher_increament,
+        }
+
+    def _sample_init_parameters(self, seed: int) -> TableDiningParameters:
+        material_params, scratch, edge_wear = self._sample_materials(seed)
+        self._material_params = material_params
+        self._scratch = scratch
+        self._edge_wear = edge_wear
+        if self._table_dimensions is not None:
+            _x, width, height = self._table_dimensions
+        else:
+            width = self._sample_model_field("width")
+            height = self._sample_model_field("dimensions")
+        return self.parameters_model(
+            seed=seed,
+            width=width,
+            dimensions=height,
+            top_thickness=uniform(0.03, 0.06),
+            strecher_relative_pos=uniform(0.2, 0.6),
+            dining_table_230=1.0,
+            strecher_increament=1,
+        )
+
+    def _sample_spawn_parameters(
+        self, params: TableDiningParameters, seed: int, i: int
+    ) -> TableDiningParameters:
+        self._geometry_spawn = self._sample_geometry_spawn_state(params)
+        return params
+
+    def apply_parameters(
+        self, params: TableDiningParameters, *, spawn_scope: bool = True
+    ) -> None:
+        if not hasattr(self, "_material_params"):
+            material_params, scratch, edge_wear = self._sample_materials(params.seed)
+            self._material_params = material_params
+            self._scratch = scratch
+            self._edge_wear = edge_wear
+        # NOTE: top_vertical_fillet_ratio and top_profile_fillet_ratio do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.top_vertical_fillet_ratio = uniform(0.1, 0.3)
+            self.top_profile_fillet_ratio = uniform(0.0, 0.02)
+        # NOTE: top_thickness and strecher_relative_pos effects vary by leg_style spawn branch (stretchers only on straight legs); excluded from quartet sampling.
+        self.dimensions = self._table_dimensions
+        if spawn_scope and hasattr(self, "_geometry_spawn"):
+            spawn = self._geometry_spawn
+        else:
+            spawn = self._sample_geometry_spawn_state(params)
+        self.params = {
+            **self._build_geometry_params(params, spawn),
+            **self._material_params,
+        }
+        self.clothes_scatter = NoApply()
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):
         bpy.ops.mesh.primitive_plane_add(
@@ -377,16 +437,70 @@ class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
 
 
 class SideTableFactory(TableDiningFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = SideTableParameters
+
     def __init__(self, factory_seed, coarse=False, dimensions=None):
-        if dimensions is None:
-            w = 0.55 * normal(1, 0.05)
-            h = 0.95 * w * normal(1, 0.05)
-            dimensions = (w, w, h)
         super().__init__(factory_seed, coarse=coarse, dimensions=dimensions)
+
+    def apply_parameters(
+        self, params: SideTableParameters, *, spawn_scope: bool = True
+    ) -> None:
+        # NOTE: top_profile_fillet_ratio and top_vertical_fillet_ratio do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.top_profile_fillet_ratio = uniform(0.0, 0.02)
+            self.top_vertical_fillet_ratio = uniform(0.1, 0.3)
+        super().apply_parameters(params, spawn_scope=spawn_scope)
+
+    def _build_geometry_params(
+        self, params: SideTableParameters, spawn: dict[str, Any]
+    ) -> dict[str, Any]:
+        extended = TableDiningParameters.model_construct(
+            **params.model_dump(),
+            top_profile_fillet_ratio=self.top_profile_fillet_ratio,
+            top_vertical_fillet_ratio=self.top_vertical_fillet_ratio,
+        )
+        return TableDiningFactory._build_geometry_params(self, extended, spawn)
 
 
 class CoffeeTableFactory(TableDiningFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = CoffeeTableParameters
+
     def __init__(self, factory_seed, coarse=False, dimensions=None):
-        if dimensions is None:
-            dimensions = (uniform(1, 1.5), uniform(0.6, 0.9), uniform(0.4, 0.5))
         super().__init__(factory_seed, coarse=coarse, dimensions=dimensions)
+
+    def _sample_init_parameters(self, seed: int) -> CoffeeTableParameters:
+        material_params, scratch, edge_wear = self._sample_materials(seed)
+        self._material_params = material_params
+        self._scratch = scratch
+        self._edge_wear = edge_wear
+        if self._table_dimensions is not None:
+            _x, width, height = self._table_dimensions
+        else:
+            width = self._sample_model_field("width")
+            height = self._sample_model_field("dimensions")
+        return CoffeeTableParameters(
+            seed=seed,
+            width=width,
+            dimensions=height,
+            top_thickness=uniform(0.03, 0.06),
+            strecher_relative_pos=uniform(0.2, 0.6),
+            dining_table_230=1.0,
+            strecher_increament=1,
+        )
+
+    def apply_parameters(
+        self, params: CoffeeTableParameters, *, spawn_scope: bool = True
+    ) -> None:
+        # NOTE: top_profile_fillet_ratio and top_vertical_fillet_ratio do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.top_profile_fillet_ratio = uniform(0.0, 0.02)
+            self.top_vertical_fillet_ratio = uniform(0.1, 0.3)
+        super().apply_parameters(params, spawn_scope=spawn_scope)
+
+    def _build_geometry_params(
+        self, params: TableDiningParameters, spawn: dict[str, Any]
+    ) -> dict[str, Any]:
+        geometry = super()._build_geometry_params(params, spawn)
+        geometry["Top Profile Fillet Ratio"] = self.top_profile_fillet_ratio
+        geometry["Top Vertical Fillet Ratio"] = self.top_vertical_fillet_ratio
+        return geometry

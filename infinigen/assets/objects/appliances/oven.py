@@ -44,6 +44,33 @@ _GAS_ONLY_KEYS = frozenset(
 _MATERIAL_KEYS = frozenset(
     {"Surface", "Back", "WhiteMetal", "SuperBlackGlass", "Glass"}
 )
+_OVEN_FIELD_BOUNDS: dict[str, tuple[float, float]] = {
+    "Depth": (0.5, 1.5),
+    "Width": (0.5, 1.5),
+    "Height": (0.5, 1.5),
+    "DoorThickness": (0.05, 0.1),
+    "RackRadius": (0.01, 0.02),
+    "RackHAmount": (2, 4),
+    "RackDAmount": (4, 6),
+    "PanelHeight": (0.2, 0.4),
+    "PanelThickness": (0.15, 0.25),
+    "BottonAmount": (2, 6),
+    "BottonRadius": (0.05, 0.1),
+    "BottonThickness": (0.02, 0.04),
+    "HeaterRadiusRatio": (0.1, 0.2),
+    "UseGas": (0, 1),
+    "n_grids": (2, 5),
+    "Branches": (4, 18),
+    "GrateThickness": (0.01, 0.03),
+    "CenterRatio": (0.05, 0.15),
+    "MiddleRatio": (0.5, 0.7),
+}
+
+
+def _clip_oven_field(name: str, value: float | int) -> float | int:
+    lo, hi = _OVEN_FIELD_BOUNDS[name]
+    clipped = np.clip(value, lo, hi)
+    return int(clipped) if isinstance(value, int) else float(clipped)
 
 
 class OvenParameters(AssetParameters):
@@ -68,14 +95,47 @@ class OvenParameters(AssetParameters):
     HeaterRadiusRatio: Annotated[
         float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})
     ]
-    UseGas: Annotated[int, Field(ge=0, le=1, json_schema_extra={"editable": True})]
-    n_grids: Annotated[int, Field(ge=2, le=5, json_schema_extra={"editable": True})]
-    Branches: Annotated[int, Field(ge=4, le=18, json_schema_extra={"editable": True})]
-    GrateThickness: Annotated[
-        float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
+    UseGas: Annotated[int, Field(ge=0, le=1, json_schema_extra={"editable": False})]
+    n_grids: Annotated[
+        int,
+        Field(
+            ge=2,
+            le=5,
+            json_schema_extra={"editable": False},
+        ),
     ]
-    CenterRatio: Annotated[float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})]
-    MiddleRatio: Annotated[float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": True})]
+    Branches: Annotated[
+        int,
+        Field(
+            ge=4,
+            le=18,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    GrateThickness: Annotated[
+        float,
+        Field(
+            ge=0.01,
+            le=0.03,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    CenterRatio: Annotated[
+        float,
+        Field(
+            ge=0.05,
+            le=0.15,
+            json_schema_extra={"editable": False},
+        ),
+    ]
+    MiddleRatio: Annotated[
+        float,
+        Field(
+            ge=0.5,
+            le=0.7,
+            json_schema_extra={"editable": False},
+        ),
+    ]
 
 
 @gin.configurable
@@ -156,11 +216,16 @@ class OvenFactory(ParameterizedAssetFactory, AssetFactory):
         return OvenParameters(
             seed=seed,
             **{
-                k: v
+                k: _clip_oven_field(k, v)
                 for k, v in geometry.items()
                 if k not in ("DoorRotation", "BrandName", "Grids")
             },
         )
+
+    @staticmethod
+    def _sample_grids(seed: int, n_grids: int) -> list[int]:
+        rng = np.random.default_rng(seed + 173)
+        return [int(rng.integers(1, 4)) for _ in range(n_grids)]
 
     def apply_parameters(
         self, params: OvenParameters, *, spawn_scope: bool = True
@@ -168,6 +233,7 @@ class OvenFactory(ParameterizedAssetFactory, AssetFactory):
         runtime = getattr(self, "_geometry_runtime", {})
         dump = params.model_dump(exclude={"seed"}, by_alias=False)
         dump.update(runtime)
+        dump["Grids"] = self._sample_grids(params.seed, params.n_grids)
         if hasattr(self, "_material_runtime"):
             dump.update(self._material_runtime)
         else:

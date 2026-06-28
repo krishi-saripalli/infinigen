@@ -1574,8 +1574,10 @@ def geo_leaf_v2(nw, **kwargs):
 class LeafFactoryV2(AssetFactory):
     scale = 0.5
 
-    def __init__(self, factory_seed, coarse=False):
+    def __init__(self, factory_seed, coarse=False, leaf_width=None):
         super(LeafFactoryV2, self).__init__(factory_seed, coarse=coarse)
+
+        self.leaf_width = leaf_width
 
         with FixedSeed(factory_seed):
             self.genome = self.sample_geo_genome()
@@ -1686,6 +1688,8 @@ class LeafFactoryV2(AssetFactory):
 
         obj = bpy.context.object
         obj.scale *= normal(1, 0.05) * self.scale
+        if self.leaf_width is not None:
+            obj.scale[0] *= self.leaf_width / 0.35
         butil.apply_transform(obj)
         tag_object(obj, "leaf")
 

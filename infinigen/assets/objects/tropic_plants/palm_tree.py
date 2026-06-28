@@ -3,17 +3,25 @@
 
 # Authors: Beining Han
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
 
 import bpy
 import gin
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.objects.tropic_plants.leaf_palm_plant import LeafPalmPlantFactory
 from infinigen.core import surface
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.color import hsv2rgba
 
@@ -1315,7 +1323,7 @@ def geometry_palm_tree_nodes(nw: NodeWrangler, truncatedstem_chance=0.4, **kwarg
         input_kwargs={
             "Segments": top_segment,
             "Rings": top_ring,
-            "Radius": uniform(0.15, 0.2),
+            "Radius": kwargs.get("crown_radius", uniform(0.15, 0.2)),
         },
     )
 
@@ -1384,7 +1392,7 @@ def geometry_palm_tree_nodes(nw: NodeWrangler, truncatedstem_chance=0.4, **kwarg
     )
 
     geos = [instance_on_points, set_material]
-    if uniform(0.0, 1.0) < truncatedstem_chance:
+    if uniform(0.0, 1.0) < kwargs.get("truncated_stem_chance", truncatedstem_chance):
         geos.append(truncatedstemgeometry)
     join_geometry = nw.new_node(Nodes.JoinGeometry, input_kwargs={"Geometry": geos})
 
@@ -1393,9 +1401,69 @@ def geometry_palm_tree_nodes(nw: NodeWrangler, truncatedstem_chance=0.4, **kwarg
     )
 
 
-class PalmTreeFactory(AssetFactory):
+class PalmTreeParameters(AssetParameters):
+    trunk_radius: Annotated[
+        float, Field(ge=0.2, le=0.3, json_schema_extra={"editable": False})
+    ] = 0.25
+    leaf_x_curvature: Annotated[
+        float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": False})
+    ] = 0.2
+    plant_z_rotate: Annotated[
+        float, Field(ge=0.0, le=0.02, json_schema_extra={"editable": False})
+    ] = 0.01
+    stem_y_curvature: Annotated[
+        float, Field(ge=-0.1, le=0.1, json_schema_extra={"editable": False})
+    ] = 0.0
+    plant_stem_length: Annotated[
+        float, Field(ge=0.5, le=1.2, json_schema_extra={"editable": False})
+    ] = 0.85
+    truncated_stem_chance: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ] = 0.4
+    leaf_seed: Annotated[int, Field(ge=0, le=1000)] = 0
+
+
+class PalmTreeFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = PalmTreeParameters
+
     def __init__(self, factory_seed, coarse=False):
         super(PalmTreeFactory, self).__init__(factory_seed, coarse=coarse)
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> PalmTreeParameters:
+        return PalmTreeParameters(seed=seed)
+
+    def _sample_spawn_parameters(
+        self, params: PalmTreeParameters, seed: int, i: int
+    ) -> PalmTreeParameters:
+        return params.model_copy(
+            update={
+                "trunk_radius": uniform(0.2, 0.3),
+                "leaf_x_curvature": uniform(0.1, 0.3),
+                "plant_z_rotate": uniform(0.0, 0.02),
+                "stem_y_curvature": uniform(-0.1, 0.1),
+                "plant_stem_length": uniform(0.5, 1.2),
+                "truncated_stem_chance": 0.4,
+                "leaf_seed": int(randint(0, 1000, size=(1,))[0]),
+            }
+        )
+
+    def apply_parameters(
+        self, params: PalmTreeParameters, *, spawn_scope: bool = True
+    ) -> None:
+        self.geom_kwargs = {
+            "trunk_radius": params.trunk_radius,
+            "truncated_stem_chance": params.truncated_stem_chance,
+        }
+        self.leaf_params = {
+            "leaf_x_curvature": params.leaf_x_curvature,
+            "plant_z_rotate": params.plant_z_rotate,
+            "stem_x_curvature": 0.0,
+            "stem_y_curvature": params.stem_y_curvature,
+            "plant_stem_length": params.plant_stem_length,
+        }
+        self.leaf_seed = params.leaf_seed
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, params={}, **kwargs):
         bpy.ops.mesh.primitive_plane_add(
@@ -1407,26 +1475,34 @@ class PalmTreeFactory(AssetFactory):
         )
         obj = bpy.context.active_object
 
-        # Make the Leaf and Delete It Later
-        lf_seed = randint(0, 1000, size=(1,))[0]
+        if self._use_fixed_spawn_draws:
+            lf_seed = self.leaf_seed
+            geom_params = dict(self.geom_kwargs)
+            leaf_p = dict(self.leaf_params)
+        else:
+            lf_seed = int(randint(0, 1000, size=(1,))[0])
+            geom_params = {
+                "trunk_radius": uniform(0.2, 0.3),
+                "truncated_stem_chance": 0.4,
+            }
+            leaf_p = {
+                "leaf_x_curvature": uniform(0.1, 0.3),
+                "plant_z_rotate": uniform(0.0, 0.02),
+                "stem_x_curvature": 0.0,
+                "stem_y_curvature": uniform(-0.1, 0.1),
+                "plant_stem_length": uniform(0.5, 1.2),
+            }
+
         leaf_model = LeafPalmPlantFactory(factory_seed=lf_seed)
-        p = {
-            "leaf_x_curvature": uniform(0.1, 0.3),
-            "plant_z_rotate": uniform(0.0, 0.02),
-            "stem_x_curvature": 0.0,
-            "stem_y_curvature": uniform(-0.1, 0.1),
-            "plant_stem_length": uniform(0.5, 1.2),
-        }
-        leaf = leaf_model.create_asset(p)
-        params["leaf"] = [leaf]
-        params["trunk_radius"] = uniform(0.2, 0.3)
+        leaf = leaf_model.create_asset(leaf_p)
+        geom_params["leaf"] = [leaf]
 
         surface.add_geomod(
             obj,
             geometry_palm_tree_nodes,
             selection=None,
             attributes=[],
-            input_kwargs=params,
+            input_kwargs=geom_params,
         )
         butil.delete([leaf])
         with butil.SelectObjects(obj):

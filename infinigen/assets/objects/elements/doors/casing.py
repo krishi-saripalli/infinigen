@@ -4,9 +4,14 @@
 
 # Authors: Lingjie Mei
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets import colors
 from infinigen.assets.materials import metal
@@ -16,22 +21,58 @@ from infinigen.assets.utils.mesh import bevel
 from infinigen.assets.utils.object import new_cube
 from infinigen.core.constraints.constraint_language.constants import RoomConstants
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 
 
-class DoorCasingFactory(AssetFactory):
+class DoorCasingParameters(AssetParameters):
+    margin_frac: Annotated[
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})
+    ]
+    extrude: Annotated[
+        float, Field(ge=0.02, le=0.08, json_schema_extra={"editable": True})
+    ]
+    bevel_all_sides_draw: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+    ]
+
+
+class DoorCasingFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = DoorCasingParameters
+
     def __init__(self, factory_seed, coarse=False, constants=None):
+        self._constants_arg = constants
         super(DoorCasingFactory, self).__init__(factory_seed, coarse)
-        with FixedSeed(self.factory_seed):
-            if constants is None:
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> DoorCasingParameters:
+        return DoorCasingParameters(
+            seed=seed,
+            margin_frac=uniform(0.05, 0.1),
+            extrude=uniform(0.02, 0.08),
+            bevel_all_sides_draw=uniform(),
+        )
+
+    def apply_parameters(
+        self, params: DoorCasingParameters, *, spawn_scope: bool = True
+    ) -> None:
+        with FixedSeed(params.seed):
+            if self._constants_arg is None:
                 constants = RoomConstants()
+            else:
+                constants = self._constants_arg
             self.constants = constants
-            self.margin = constants.door_size * uniform(0.05, 0.1)
-            self.extrude = uniform(0.02, 0.08)
-            self.bevel_all_sides = uniform() < 0.3
             self.surface = np.random.choice([metal, wood])
             self.metal_color = colors.metal_hsv()
+        self.margin = constants.door_size * params.margin_frac
+        self.extrude = params.extrude
+        self.bevel_all_sides = params.bevel_all_sides_draw < 0.3
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:
         obj = new_cube()

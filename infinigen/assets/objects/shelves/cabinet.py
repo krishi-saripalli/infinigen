@@ -7,9 +7,14 @@
 # - Abhishek Joshi: Updates for sim
 # - Max Gonzalez Saez-Diez: Updates for sim
 
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
 import bpy
 import numpy as np
 from numpy.random import normal, randint, uniform
+from pydantic import Field
 
 from infinigen.assets.materials.wood.plywood import get_shelf_material
 from infinigen.assets.objects.shelves.large_shelf import LargeShelfBaseFactory
@@ -21,6 +26,10 @@ from infinigen.core import surface
 from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 
@@ -1713,30 +1722,52 @@ class CabinetDoorBaseFactory(AssetFactory):
         return obj
 
 
-class CabinetDoorIkeaFactory(CabinetDoorBaseFactory):
+class CabinetDoorIkeaParameters(AssetParameters):
+    door_height: Annotated[
+        float, Field(ge=0.7, le=2.2, json_schema_extra={"editable": True})
+    ]
+    door_width: Annotated[
+        float, Field(ge=0.3, le=0.4, json_schema_extra={"editable": True})
+    ]
+
+
+class CabinetDoorIkeaFactory(ParameterizedAssetFactory, CabinetDoorBaseFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = CabinetDoorIkeaParameters
+    _fixed_params = {
+        "edge_thickness_1": 0.012,
+        "edge_thickness_2": 0.008,
+        "board_thickness": 0.006,
+        "edge_width": 0.02,
+        "edge_ramp_angle": 0.5,
+        "knob_R": 0.004,
+        "knob_length": 0.03,
+        "has_mid_ramp": False,
+        "attach_height": 0.08,
+    }
+
     def __init__(self, factory_seed, params={}, coarse=False):
-        super(CabinetDoorIkeaFactory, self).__init__(factory_seed, coarse=coarse)
-        self.params = {
-            "edge_thickness_1": 0.012,
-            "edge_thickness_2": 0.008,
-            "board_thickness": 0.006,
-            "edge_width": 0.02,
-            "edge_ramp_angle": 0.5,
-            "knob_R": 0.004,
-            "knob_length": 0.03,
-            "has_mid_ramp": False,
-            "attach_height": 0.08,
-        }
+        AssetFactory.__init__(self, factory_seed, coarse=coarse)
+        self.params = dict(self._fixed_params)
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> CabinetDoorIkeaParameters:
+        return CabinetDoorIkeaParameters(
+            seed=seed,
+            door_height=uniform(0.7, 2.2),
+            door_width=uniform(0.3, 0.4),
+        )
+
+    def apply_parameters(
+        self, params: CabinetDoorIkeaParameters, *, spawn_scope: bool = True
+    ) -> None:
+        self.params = dict(self._fixed_params)
+        self.params["door_height"] = params.door_height
+        self.params["door_width"] = params.door_width
+        self.params["door_left_hinge"] = False
+        self._use_fixed_spawn_draws = spawn_scope
 
     def get_asset_params(self, i=0):
         params = self.params.copy()
-        if params.get("door_height", None) is None:
-            params["door_height"] = uniform(0.7, 2.2)
-        if params.get("door_width", None) is None:
-            params["door_width"] = uniform(0.3, 0.4)
-        if params.get("door_left_hinge", None) is None:
-            params["door_left_hinge"] = False
-
         params["attach_height"] = [
             params["door_height"] - params["attach_height"],
             params["attach_height"],
@@ -1925,6 +1956,7 @@ class CabinetBaseFactory(AssetFactory):
         surface.add_geomod(
             obj,
             geometry_cabinet_nodes,
+            apply=True,
             attributes=[],
             input_kwargs={
                 "door": [right_door, left_door],
@@ -1939,15 +1971,93 @@ class CabinetBaseFactory(AssetFactory):
         return obj
 
 
-class CabinetFactory(CabinetBaseFactory):
+class CabinetParameters(AssetParameters):
+    dimension_depth: Annotated[
+        float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": False})
+    ]
+    dimension_width: Annotated[
+        float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})
+    ]
+    dimension_height: Annotated[
+        float, Field(ge=0.9, le=1.8, json_schema_extra={"editable": True})
+    ]
+
+
+class CabinetFactory(ParameterizedAssetFactory, CabinetBaseFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = CabinetParameters
+
+    def __init__(self, factory_seed, params={}, coarse=False):
+        AssetFactory.__init__(self, factory_seed, coarse=coarse)
+        self.shelf_params = {}
+        self.door_params = {}
+        self.mat_params = {}
+        self.shelf_fac = LargeShelfBaseFactory(factory_seed)
+        self.door_fac = CabinetDoorBaseFactory(factory_seed)
+        self.init_legacy_parameters()
+
+    def get_door_params(self, i=0):
+        params = self.door_params.copy()
+        shelf_width = (
+            self.shelf_params["shelf_width"]
+            + self.shelf_params["side_board_thickness"] * 2
+        )
+        if params.get("door_width", None) is None:
+            if shelf_width < 0.55:
+                params["door_width"] = shelf_width
+                params["num_door"] = 1
+            else:
+                params["door_width"] = shelf_width / 2.0 - 0.0005
+                params["num_door"] = 2
+        if params.get("door_height", None) is None:
+            params["door_height"] = (
+                self.shelf_params["division_board_z_translation"][-1]
+                - self.shelf_params["division_board_z_translation"][0]
+                + self.shelf_params["division_board_thickness"]
+            )
+            if (
+                self._use_short_door
+                and len(self.shelf_params["division_board_z_translation"]) >= 2
+            ):
+                short_idx = min(
+                    3, len(self.shelf_params["division_board_z_translation"]) - 1
+                )
+                params["door_height"] = (
+                    self.shelf_params["division_board_z_translation"][short_idx]
+                    - self.shelf_params["division_board_z_translation"][0]
+                    + self.shelf_params["division_board_thickness"]
+                )
+        if params.get("frame_material", None) is None:
+            params["frame_material"] = self.mat_params["frame_material"]
+        return params
+
+    def _sample_init_parameters(self, seed: int) -> CabinetParameters:
+        return CabinetParameters(
+            seed=seed,
+            dimension_depth=uniform(0.25, 0.35),
+            dimension_width=uniform(0.3, 0.7),
+            dimension_height=uniform(0.9, 1.8),
+        )
+
+    def apply_parameters(
+        self, params: CabinetParameters, *, spawn_scope: bool = True
+    ) -> None:
+        self._dimension_depth = params.dimension_depth
+        self._dimension_width = params.dimension_width
+        self._dimension_height = params.dimension_height
+        # NOTE: use_short_door does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self._use_short_door = bool(np.random.choice([True, False], p=[0.5, 0.5]))
+        self.door_params = {}
+        self.sample_params()
+        self._use_fixed_spawn_draws = spawn_scope
+
     def sample_params(self):
         params = dict()
         params["Dimensions"] = (
-            uniform(0.25, 0.35),
-            uniform(0.3, 0.7),
-            uniform(0.9, 1.8),
+            self._dimension_depth,
+            self._dimension_width,
+            self._dimension_height,
         )
-
         params["bottom_board_height"] = 0.083
         params["shelf_depth"] = params["Dimensions"][0] - 0.01
         num_h = int((params["Dimensions"][2] - 0.083) / 0.3)
@@ -1955,4 +2065,4 @@ class CabinetFactory(CabinetBaseFactory):
             (params["Dimensions"][2] - 0.083) / num_h for _ in range(num_h)
         ]
         params["shelf_cell_width"] = [params["Dimensions"][1]]
-        self.shelf_params = self.shelf_fac.sample_params()
+        self.shelf_params = params

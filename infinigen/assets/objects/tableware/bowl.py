@@ -21,6 +21,7 @@ from infinigen.assets.utils.draw import spin
 from infinigen.assets.utils.object import new_bbox
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
@@ -28,22 +29,29 @@ class BowlParameters(AssetParameters):
     thickness_ratio: Annotated[
         float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
     ]
-    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})]
-    scale: Annotated[float, Field(ge=0.15, le=0.4, json_schema_extra={"editable": True})]
-    x_bottom: Annotated[float, Field(ge=0.2, le=0.3, json_schema_extra={"editable": True})]
-    x_mid: Annotated[float, Field(ge=0.8, le=0.95, json_schema_extra={"editable": True})]
-    z_bottom: Annotated[float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})]
+    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
+    x_mid: Annotated[float, Field(ge=0.8, le=0.95, json_schema_extra={"editable": False})]
     z_length: Annotated[float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": True})]
-    has_inside_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
+    has_inside: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
     scratch_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ] = 0.0
     edge_wear_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
-    bevel_segments: Annotated[int, Field(ge=2, le=4, json_schema_extra={"editable": True})] = (
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
+    ] = 0.0
+    bevel_segments: Annotated[int, Field(ge=2, le=4, json_schema_extra={"editable": False})] = (
         2
     )
 
@@ -59,17 +67,13 @@ class BowlFactory(ParameterizedAssetFactory, TablewareFactory):
 
     def _sample_init_parameters(self, seed: int) -> BowlParameters:
         base = sample_tableware_base(seed)
-        scale = log_uniform(0.15, 0.4)
         return BowlParameters(
             seed=seed,
             thickness_ratio=uniform(0.01, 0.03),
             lower_thresh=base["lower_thresh"],
-            scale=scale,
-            x_bottom=uniform(0.2, 0.3),
             x_mid=uniform(0.8, 0.95),
-            z_bottom=log_uniform(0.02, 0.05),
             z_length=log_uniform(0.4, 0.8),
-            has_inside_draw=uniform(),
+            has_inside=uniform() < 0.5,
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
         )
@@ -82,20 +86,25 @@ class BowlFactory(ParameterizedAssetFactory, TablewareFactory):
     def apply_parameters(
         self, params: BowlParameters, *, spawn_scope: bool = True
     ) -> None:
+        # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.scale = log_uniform(0.15, 0.4)
         apply_tableware_from_draws(
             self,
             seed=params.seed,
             lower_thresh=params.lower_thresh,
-            scale=params.scale,
+            scale=self.scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,
         )
-        self.thickness = params.thickness_ratio * params.scale
-        self.has_inside = params.has_inside_draw < 0.5
-        self.x_bottom = params.x_bottom * self.x_end
+        self.has_inside = params.has_inside
+        # NOTE: x_bottom and z_bottom do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.x_bottom = uniform(0.2, 0.3) * self.x_end
+            self.z_bottom = log_uniform(0.02, 0.05)
         self.x_mid = params.x_mid * self.x_end
-        self.z_bottom = params.z_bottom
         self.z_length = params.z_length
+        self.thickness = params.thickness_ratio * self.z_length * 2
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self._bevel_segments = params.bevel_segments

@@ -21,6 +21,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 
 
 def shader_lamp_material(nw: NodeWrangler):
@@ -414,10 +415,7 @@ class CeilingClassicLampParameters(AssetParameters):
     cable_length: Annotated[
         float, Field(ge=0.6, le=0.71, json_schema_extra={"editable": True})
     ]
-    cable_radius: Annotated[
-        float, Field(ge=0.015, le=0.02, json_schema_extra={"editable": True})
-    ]
-    height: Annotated[float, Field(ge=0.4, le=0.71, json_schema_extra={"editable": True})]
+    height: Annotated[float, Field(ge=0.4, le=0.71, json_schema_extra={"editable": False})]
     top_radius: Annotated[
         float, Field(ge=0.05, le=0.2, json_schema_extra={"editable": True})
     ]
@@ -442,7 +440,6 @@ class CeilingClassicLampFactory(ParameterizedAssetFactory, AssetFactory):
         return CeilingClassicLampParameters(
             seed=seed,
             cable_length=uniform(0.6, 0.710),
-            cable_radius=uniform(0.015, 0.02),
             height=uniform(0.4, 0.710),
             top_radius=uniform(0.05, 0.2),
             bottom_radius=uniform(0.22, 0.35),
@@ -453,7 +450,13 @@ class CeilingClassicLampFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: CeilingClassicLampParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.params = params.model_dump(exclude={"seed"}, by_alias=True)
+        # NOTE: cable_radius does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            cable_radius = uniform(0.015, 0.02)
+        self.params = {
+            **params.model_dump(exclude={"seed"}, by_alias=True),
+            "cable_radius": cable_radius,
+        }
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **_):

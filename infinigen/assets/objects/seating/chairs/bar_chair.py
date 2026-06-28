@@ -19,7 +19,10 @@ from infinigen.assets.objects.tables.cocktail_table import geometry_create_legs
 from infinigen.core import surface, tagging
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
@@ -58,15 +61,32 @@ class BarChairParameters(AssetParameters):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     top_profile_width: Annotated[
-        float, Field(alias="Top Profile Width", json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.35,
+            le=0.45,
+            alias="Top Profile Width",
+            json_schema_extra={"editable": True},
+        ),
     ]
+    # NOTE: effect depends on sampled leg style.
     top_thickness: Annotated[
-        float, Field(alias="Top Thickness", json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.06,
+            le=0.10,
+            alias="Top Thickness",
+            json_schema_extra={"editable": False},
+        ),
     ]
-    height: Annotated[float, Field(alias="Height", json_schema_extra={"editable": True})]
+    height: Annotated[
+        float, Field(ge=0.7, le=1.0, alias="Height", json_schema_extra={"editable": True})
+    ]
     leg_placement_bottom_relative_scale: Annotated[
         float,
         Field(
+            ge=1.1,
+            le=1.3,
             alias="Leg Placement Bottom Relative Scale",
             json_schema_extra={"editable": True},
         ),
@@ -173,19 +193,23 @@ class BarChairFactory(ParameterizedAssetFactory, AssetFactory):
     def _build_geometry_params(
         self, params: BarChairParameters
     ) -> tuple[dict[str, Any], Any | None, Any | None]:
+        # NOTE: top_profile_width and leg_placement_bottom_relative_scale do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            top_profile_width = uniform(0.35, 0.45)
+            leg_placement_bottom_relative_scale = uniform(1.1, 1.3)
         dimensions = (
             self.dimensions
             if self.dimensions is not None
-            else (params.top_profile_width, params.top_profile_width, params.height)
+            else (top_profile_width, top_profile_width, params.height)
         )
         with FixedSeed(params.seed):
             geometry, _ = self._sample_geometry_parameters(dimensions)
-        geometry["Top Profile Width"] = params.top_profile_width
+        geometry["Top Profile Width"] = top_profile_width
         geometry["Top Thickness"] = params.top_thickness
         geometry["Height"] = params.height
         geometry["Top Height"] = params.height - params.top_thickness
         geometry["Leg Placement Bottom Relative Scale"] = (
-            params.leg_placement_bottom_relative_scale
+            leg_placement_bottom_relative_scale
         )
         with FixedSeed(params.seed):
             materials, scratch, edge_wear = self._sample_materials()
@@ -196,12 +220,8 @@ class BarChairFactory(ParameterizedAssetFactory, AssetFactory):
         return BarChairParameters.model_validate(
             {
                 "seed": seed,
-                "Top Profile Width": geometry["Top Profile Width"],
                 "Top Thickness": geometry["Top Thickness"],
                 "Height": geometry["Height"],
-                "Leg Placement Bottom Relative Scale": geometry[
-                    "Leg Placement Bottom Relative Scale"
-                ],
             }
         )
 

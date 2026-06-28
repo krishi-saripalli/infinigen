@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 import bpy
 import gin
@@ -15,6 +15,7 @@ import numpy as np
 from numpy.random import normal as N
 from numpy.random import randint
 from numpy.random import uniform as U
+from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
 from infinigen.assets.objects.creatures import parts
@@ -38,11 +39,16 @@ from infinigen.core.util.random import weighted_sample
 logger = logging.getLogger(__name__)
 
 
-def insect_hair_params():
+def insect_hair_params(
+    p: BeetleParameters | None = None,
+    *,
+    length: float | None = None,
+    puff: float | None = None,
+):
     mat_roughness = U(0.7, 1)
 
-    length = U(0.01, 0.04)
-    puff = U(0.7, 1)
+    length = length if length is not None else U(0.01, 0.04)
+    puff = puff if puff is not None else U(0.7, 1)
 
     return {
         "density": 4000,
@@ -74,13 +80,22 @@ def insect_hair_params():
     }
 
 
-def beetle_genome():
+def beetle_genome(
+    p: BeetleParameters | None = None,
+    *,
+    hair_length: float | None = None,
+    hair_puff: float | None = None,
+):
     fac = parts.generic_nurbs.NurbsBody(
         prefix="body_insect", tags=["body", "rigid"], var=2
     )
-    if U() < 0.5:
+    has_proportion_noise = (
+        p.has_proportion_noise if p is not None else U() < 0.5
+    )
+    if has_proportion_noise:
         n = len(fac.params["proportions"])
-        noise = U(1, 3, n)
+        noise_max = p.proportion_noise if p is not None else 3.0
+        noise = U(1, noise_max, n)
         noise[-n // 3 :] = 1
         fac.params["proportions"] *= noise
 
@@ -89,9 +104,10 @@ def beetle_genome():
     body_length = fac.params["proportions"].sum() * fac.params["length"]
 
     leg_fac = parts.leg.InsectLeg()
-    n_leg_pairs = int(np.clip(body_length * clip_gaussian(3, 2, 2, 6), 2, 15))
+    leg_density = p.leg_density if p is not None else clip_gaussian(3, 2, 2, 6)
+    n_leg_pairs = int(np.clip(body_length * leg_density, 2, 15))
     leg_fac.params["length_rad1_rad2"][0] /= n_leg_pairs / 1.8
-    splay = U(30, 60)
+    splay = p.leg_splay if p is not None else U(30, 60)
     for t in np.linspace(0.15, 0.6, n_leg_pairs):
         for side in [-1, 1]:
             leg = genome.part(leg_fac)
@@ -107,9 +123,11 @@ def beetle_genome():
     head = genome.part(
         parts.generic_nurbs.NurbsHead(prefix="head_insect", tags=["head", "rigid"])
     )
-    genome.attach(head, body, coord=(1, 0, 0), joint=Joint((0, -15, 0)))
+    head_pitch = p.head_pitch if p is not None else -15.0
+    genome.attach(head, body, coord=(1, 0, 0), joint=Joint((0, head_pitch, 0)))
 
-    if U() < 0.7:
+    has_mandibles = p.has_mandibles if p is not None else U() < 0.7
+    if has_mandibles:
         mandible_fac = parts.head_detail.InsectMandible()
         rot = np.array((120, 20, 80)) * N(1, 0.15)
         for side in [-1, 1]:
@@ -124,13 +142,30 @@ def beetle_genome():
     return genome.CreatureGenome(
         parts=body,
         postprocess_params=dict(
-            hair=insect_hair_params(),
+            hair=insect_hair_params(p, length=hair_length, puff=hair_puff),
         ),
     )
 
 
 class BeetleParameters(AssetParameters):
-    pass
+    has_proportion_noise: Annotated[
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+    ] = True
+    has_mandibles: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = False
+    leg_splay: Annotated[
+        float, Field(ge=30.0, le=60.0, json_schema_extra={"editable": False})
+    ]
+    head_pitch: Annotated[
+        float, Field(ge=-30.0, le=0.0, json_schema_extra={"editable": False})
+    ]
+    proportion_noise: Annotated[
+        float, Field(ge=1.0, le=3.0, json_schema_extra={"editable": True})
+    ]
+    leg_density: Annotated[
+        float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": False})
+    ]
 
 
 @gin.configurable
@@ -146,20 +181,39 @@ class BeetleFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BeetleParameters:
-        return BeetleParameters(seed=seed)
+        return BeetleParameters(
+            seed=seed,
+            has_proportion_noise=True,
+            has_mandibles=bool(U() < 0.7),
+            leg_splay=U(30, 60),
+            head_pitch=U(-30, 0),
+            proportion_noise=U(1, 3),
+            leg_density=clip_gaussian(3, 2, 2, 6),
+        )
 
     def apply_parameters(
         self, params: BeetleParameters, *, spawn_scope: bool = True
     ) -> None:
         with FixedSeed(params.seed):
             self.body_material = weighted_sample(material_assignments.beetle)()
+        # NOTE: hair_length and hair_puff do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.hair_length = U(0.01, 0.04)
+            self.hair_puff = U(0.7, 1)
+        if spawn_scope:
+            self._beetle_params = params
         self._use_fixed_spawn_draws = spawn_scope
 
     def apply_materials(self, obj):
         self.body_material.apply(joining.get_parts(obj))
 
     def create_asset(self, i, hair=False, **kwargs):
-        genome = beetle_genome()
+        beetle_params = self._beetle_params if self._use_fixed_spawn_draws else None
+        genome = beetle_genome(
+            beetle_params,
+            hair_length=getattr(self, "hair_length", None),
+            hair_puff=getattr(self, "hair_puff", None),
+        )
         root, parts = creature.genome_to_creature(
             genome, name=f"beetle({self.factory_seed}, {i})"
         )

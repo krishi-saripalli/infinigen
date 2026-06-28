@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from typing import Any, ClassVar, Self, TypeVar
 
-import numpy as np
 import bpy
+import numpy as np
 from annotated_types import Ge, Le
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from infinigen.core.util.math import FixedSeed, int_hash
 
@@ -23,6 +24,20 @@ def _field_bounds(field_info: Any) -> tuple[float, float] | None:
     if ge is not None and le is not None:
         return float(ge), float(le)
     return None
+
+
+def _field_extra(field_info: Any) -> dict:
+    extra = field_info.json_schema_extra
+    return extra if isinstance(extra, dict) else {}
+
+
+def _field_kind(field_info: Any) -> str | None:
+    kind = _field_extra(field_info).get("kind")
+    return kind if isinstance(kind, str) else None
+
+
+def _field_choices(field_info: Any) -> list[Any]:
+    return list(_field_extra(field_info).get("choices", []))
 
 
 def _is_editable(field_info: Any) -> bool:
@@ -56,10 +71,22 @@ class AssetParameters(BaseModel):
     def sweep(
         self, field: str, n_steps: int = 11
     ) -> tuple[list[float], list[Any]]:
-        """Return (unit_values, native_values) for a uniform quantile sweep of a field."""
+        """Return (unit_values, native_values) for a uniform sweep of a field."""
         if field not in self.model_fields:
             raise KeyError(field)
-        bounds = _field_bounds(self.model_fields[field])
+        field_info = self.model_fields[field]
+        kind = _field_kind(field_info)
+        if kind == "bool":
+            return [0.0, 1.0], [False, True]
+        if kind == "draw_bool":
+            return [0.0, 1.0], [0.0, 1.0]
+        if kind == "enum":
+            choices = _field_choices(field_info)
+            if len(choices) < 2:
+                raise ValueError(f"{field} enum needs >= 2 choices for sweep")
+            unit_values = np.linspace(0.0, 1.0, len(choices)).tolist()
+            return unit_values, list(choices)
+        bounds = _field_bounds(field_info)
         if bounds is None:
             raise ValueError(f"{field} has no numeric bounds for sweep")
         low, high = bounds
@@ -76,7 +103,20 @@ class AssetParameters(BaseModel):
         """Return a new instance with field set from a unit-space value in [0, 1]."""
         if field not in self.model_fields:
             raise KeyError(field)
-        bounds = _field_bounds(self.model_fields[field])
+        field_info = self.model_fields[field]
+        kind = _field_kind(field_info)
+        if kind == "bool":
+            return self.model_copy(update={field: bool(unit_value >= 0.5)})
+        if kind == "draw_bool":
+            return self.model_copy(update={field: float(unit_value >= 0.5)})
+        if kind == "enum":
+            choices = _field_choices(field_info)
+            if len(choices) < 2:
+                raise ValueError(f"{field} enum needs >= 2 choices for edit")
+            idx = int(round(unit_value * (len(choices) - 1)))
+            idx = max(0, min(idx, len(choices) - 1))
+            return self.model_copy(update={field: choices[idx]})
+        bounds = _field_bounds(field_info)
         if bounds is None:
             raise ValueError(f"{field} has no numeric bounds for edit")
         low, high = bounds
@@ -84,7 +124,7 @@ class AssetParameters(BaseModel):
         new_value: float | int = low + unit_value * (high - low)
         if isinstance(current, int):
             new_value = int(round(new_value))
-        return self.model_copy(update={field : new_value})
+        return self.model_copy(update={field: new_value})
 
 
 class LegacyBridgeParameters(AssetParameters):
@@ -149,7 +189,7 @@ class ParameterizedAssetFactory:
         with FixedSeed(effective_seed):
             params = self._sample_init_parameters(effective_seed)
         with FixedSeed(int_hash((effective_seed, asset_index))):
-            params = self._sample_spawn_parameters(params, effective_seed, asset_index)
+            params = self._apply_spawn_parameters(params, effective_seed, asset_index)
         params = params.model_copy(update={"seed": effective_seed})
         return params
 
@@ -160,6 +200,20 @@ class ParameterizedAssetFactory:
         self, params: AssetParameters, seed: int, i: int
     ) -> AssetParameters:
         return params
+
+    def _preserve_editable_spawn_fields(
+        self, params: AssetParameters, fresh: AssetParameters
+    ) -> AssetParameters:
+        """Keep quartet-edited values when spawn resampling would overwrite them."""
+        editable = type(params).editable_field_names()
+        preserved = {name: getattr(params, name) for name in editable}
+        return fresh.model_copy(update=preserved)
+
+    def _apply_spawn_parameters(
+        self, params: AssetParameters, seed: int, i: int
+    ) -> AssetParameters:
+        fresh = self._sample_spawn_parameters(params, seed, i)
+        return self._preserve_editable_spawn_fields(params, fresh)
 
     def apply_parameters(
         self, params: AssetParameters, *, spawn_scope: bool = True
@@ -179,6 +233,11 @@ class ParameterizedAssetFactory:
             with FixedSeed(self.factory_seed):
                 post_init()
 
+    def _needs_placeholder(self) -> bool:
+        """Return True when create_asset requires a placeholder positional arg."""
+        param = inspect.signature(self.create_asset).parameters.get("placeholder")
+        return param is not None and param.default is inspect.Parameter.empty
+
     def generate(
         self,
         params: AssetParameters,
@@ -190,9 +249,18 @@ class ParameterizedAssetFactory:
         from . import detail
 
         asset_index = params.seed if i is None else i
+        with FixedSeed(int_hash((self.factory_seed, asset_index))):
+            params = self._apply_spawn_parameters(params, params.seed, asset_index)
         self.apply_parameters(params, spawn_scope=True)
         if distance is None:
             distance = detail.scatter_res_distance()
+        if self._needs_placeholder():
+            return self.spawn_asset(
+                i=asset_index,
+                distance=distance,
+                vis_distance=vis_distance,
+                **kwargs,
+            )
         with FixedSeed(int_hash((self.factory_seed, asset_index))):
             spawn_params = self.asset_parameters(distance, vis_distance)
             spawn_params.update(kwargs)

@@ -34,8 +34,8 @@ class PanParameters(AssetParameters):
     r_expand: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
     depth: Annotated[float, Field(ge=0.3, le=0.8, json_schema_extra={"editable": True})]
     r_mid: Annotated[float, Field(ge=1.0, le=1.3, json_schema_extra={"editable": True})]
-    has_handle_hole_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    has_handle_hole: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
     x_handle: Annotated[float, Field(ge=1.2, le=2.0, json_schema_extra={"editable": True})]
     z_handle_frac: Annotated[
@@ -46,8 +46,8 @@ class PanParameters(AssetParameters):
     ]
     s_handle: Annotated[float, Field(ge=0.8, le=1.2, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": True})]
-    has_guard_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+    has_guard: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
     x_guard_extra: Annotated[
         float, Field(ge=0.0, le=0.2, json_schema_extra={"editable": True})
@@ -58,10 +58,20 @@ class PanParameters(AssetParameters):
     scale: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
     lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})]
     scratch_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
     edge_wear_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool"},
+        ),
     ]
     n_vertices: Annotated[float, Field(ge=4.0, le=8.0, json_schema_extra={"editable": True})] = (
         4.0
@@ -103,13 +113,13 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
             r_expand=r_expand,
             depth=depth,
             r_mid=r_mid,
-            has_handle_hole_draw=uniform(),
+            has_handle_hole=bool(uniform() < 0.6),
             x_handle=x_handle,
             z_handle_frac=z_handle_frac,
             z_handle_mid_frac=uniform(0.6, 0.8),
             s_handle=log_uniform(0.8, 1.2),
             thickness=thickness,
-            has_guard_draw=uniform(0, 1),
+            has_guard=bool(uniform(0, 1) < 0.8),
             x_guard_extra=uniform(0, 0.2),
             guard_depth_mult=log_uniform(1.0, 2.0),
             scale=log_uniform(0.1, 0.15),
@@ -147,12 +157,12 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
         self.r_expand = params.r_expand
         self.depth = params.depth
         self.r_mid = params.r_mid
-        self.has_handle_hole = params.has_handle_hole_draw < 0.6
+        self.has_handle_hole = params.has_handle_hole
         self.x_handle = params.x_handle
         self.z_handle = params.x_handle * params.z_handle_frac
         self.z_handle_mid = params.z_handle_mid_frac * self.z_handle
         self.s_handle = params.s_handle
-        self.has_guard = params.has_guard_draw < 0.8
+        self.has_guard = params.has_guard
         self.x_guard = params.r_expand + params.x_guard_extra * params.x_handle
         self.guard_depth = params.guard_depth_mult * params.thickness
         self._use_fixed_spawn_draws = spawn_scope

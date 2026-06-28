@@ -20,12 +20,12 @@ from infinigen.core import surface
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class BlanketParameters(AssetParameters):
-    width: Annotated[float, Field(ge=0.9, le=1.2, json_schema_extra={"editable": True})]
-    size: Annotated[float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": True})]
+    size: Annotated[float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})]
     thickness: Annotated[
         float, Field(ge=0.004, le=0.008, json_schema_extra={"editable": True})
     ]
@@ -39,7 +39,6 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BlanketParameters:
-        width = log_uniform(0.9, 1.2)
         size_ratio = log_uniform(0.4, 0.7)
         surface_gen_class = weighted_sample(material_assignments.blanket)
         surface_material_gen = surface_gen_class()
@@ -47,9 +46,8 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
         if surface_mat == ArtFabric:
             surface_mat = surface_mat(seed)
         self.surface = surface_mat
-        return BlanketParameters(
+        return self.parameters_model(
             seed=seed,
-            width=width,
             size=size_ratio,
             thickness=log_uniform(0.004, 0.008),
         )
@@ -57,8 +55,10 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: BlanketParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.width = params.width
-        self.size = params.width * params.size
+        # NOTE: width sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        with FixedSeed(params.seed):
+            self.width = log_uniform(0.9, 1.2)
+        self.size = self.width * params.size
         self.thickness = params.thickness
         self._use_fixed_spawn_draws = spawn_scope
 
@@ -69,6 +69,7 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
         obj.scale = self.width / 2, self.size / 2, 1
         butil.apply_transform(obj)
         unwrap_faces(obj)
+        butil.modify_mesh(obj, "SOLIDIFY", thickness=self.thickness, offset=0)
         surface.assign_material(obj, self.surface)
         return obj
 
@@ -90,14 +91,39 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
         butil.apply_transform(obj)
 
 
+class ComforterParameters(BlanketParameters):
+    pass
+
+
 class ComforterFactory(BlanketFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = ComforterParameters
+
+    def apply_parameters(
+        self, params: ComforterParameters, *, spawn_scope: bool = True
+    ) -> None:
+        super().apply_parameters(params, spawn_scope=spawn_scope)
+        # NOTE: thickness sampled on self from seed; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.thickness = log_uniform(0.004, 0.008)
+
     def create_asset(self, **params) -> bpy.types.Object:
-        obj = super().create_asset(**params)
-        butil.modify_mesh(obj, "SOLIDIFY", thickness=0.01)
+        obj = new_grid(
+            x_subdivisions=64, y_subdivisions=int(self.size / self.width * 64)
+        )
+        obj.scale = self.width / 2, self.size / 2, 1
+        butil.apply_transform(obj)
+        unwrap_faces(obj)
+        butil.modify_mesh(obj, "SOLIDIFY", thickness=self.thickness * 10, offset=0)
+        surface.assign_material(obj, self.surface)
         return obj
 
 
+class BoxComforterParameters(BlanketParameters):
+    pass
+
+
 class BoxComforterFactory(ComforterFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = BoxComforterParameters
     def __init__(self, factory_seed, coarse=False):
         super(BoxComforterFactory, self).__init__(factory_seed, coarse)
         self.margin = uniform(0.3, 0.4)

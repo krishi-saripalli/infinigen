@@ -4,12 +4,16 @@
 # Authors: Lingjie Mei
 
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import Annotated, ClassVar
 
 import bpy
 import gin
 import numpy as np
 from numpy.random import uniform
+from pydantic import Field
 
 from infinigen.assets.objects.creatures.parts.crustacean.antenna import (
     LobsterAntennaFactory,
@@ -46,6 +50,10 @@ from infinigen.core.nodes.node_info import Nodes
 from infinigen.core.nodes.node_utils import build_color_ramp
 from infinigen.core.nodes.node_wrangler import NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.surface import read_attr_data, shaderfunc_to_material
 from infinigen.core.util import blender as butil
 from infinigen.core.util.color import hsv2rgba
@@ -275,8 +283,30 @@ def animate_crustacean_move(arma, params):
         eval(factory_name).animate_bones(arma, bones, params)
 
 
+class CrustaceanParameters(AssetParameters):
+    leg_angle: Annotated[
+        float, Field(ge=0.28, le=0.50, json_schema_extra={"editable": True})
+    ]
+    leg_length_scale: Annotated[
+        float, Field(ge=0.5, le=3.0, json_schema_extra={"editable": True})
+    ]
+    claw_length_scale: Annotated[
+        float, Field(ge=1.0, le=2.0, json_schema_extra={"editable": True})
+    ]
+    claw_angle: Annotated[
+        float, Field(ge=0.38, le=0.52, json_schema_extra={"editable": True})
+    ]
+    leg_curl: Annotated[
+        float, Field(ge=-1.26, le=1.26, json_schema_extra={"editable": True})
+    ]
+    tail_length_scale: Annotated[
+        float, Field(ge=1.0, le=2.0, json_schema_extra={"editable": True})
+    ]
+
+
 @gin.configurable
-class CrustaceanFactory(AssetFactory):
+class CrustaceanFactory(ParameterizedAssetFactory, AssetFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = CrustaceanParameters
     max_expected_radius = 1
     max_distance = 40
 
@@ -289,9 +319,33 @@ class CrustaceanFactory(AssetFactory):
                 "spiny_lobster": self.spiny_lobster_params,
             }
             self.species = np.random.choice(list(self.species_params.keys()))
+        self.init_legacy_parameters()
+
+    def _sample_init_parameters(self, seed: int) -> CrustaceanParameters:
+        return CrustaceanParameters(
+            seed=seed,
+            leg_angle=uniform(0.28, 0.50),
+            leg_length_scale=log_uniform(0.5, 3.0),
+            claw_length_scale=log_uniform(1.0, 2.0),
+            claw_angle=uniform(0.38, 0.52),
+            leg_curl=uniform(-np.pi * 0.4, np.pi * 0.4),
+            tail_length_scale=log_uniform(1.0, 2.0),
+        )
+
+    def apply_parameters(
+        self, params: CrustaceanParameters, *, spawn_scope: bool = True
+    ) -> None:
+        if spawn_scope:
+            self._crustacean_params = params
+        self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, i, animate=True, rigging=True, cloth=False, **kwargs):
-        genome = crustacean_genome(self.species_params[self.species]())
+        crustacean_params = (
+            self._crustacean_params if self._use_fixed_spawn_draws else None
+        )
+        genome = crustacean_genome(
+            self.species_params[self.species](crustacean_params)
+        )
         root, parts = genome_to_creature(
             genome, name=f"crustacean({self.factory_seed}, {i})"
         )
@@ -314,8 +368,16 @@ class CrustaceanFactory(AssetFactory):
             butil.join_objects([joined] + extras)
         return root
 
-    def crab_params(self):
-        base_leg_curl = uniform(-np.pi * 0.15, np.pi * 0.15)
+    def crab_params(self, p: CrustaceanParameters | None = None):
+        base_leg_curl = (
+            p.leg_curl if p is not None else uniform(-np.pi * 0.15, np.pi * 0.15)
+        )
+        leg_length_scale = (
+            p.leg_length_scale if p is not None else log_uniform(2.0, 3.0)
+        )
+        claw_length_scale = (
+            p.claw_length_scale if p is not None else log_uniform(1.5, 1.8)
+        )
         return {
             "body_fn": CrabBodyFactory,
             "leg_fn": CrabLegFactory,
@@ -323,8 +385,8 @@ class CrustaceanFactory(AssetFactory):
             "tail_fn": None,
             "antenna_fn": None,
             "fin_fn": None,
-            "leg_x_length": lambda p: p["y_length"] * log_uniform(2.0, 3.0),
-            "claw_x_length": lambda p: p["y_length"] * log_uniform(1.5, 1.8),
+            "leg_x_length": lambda body_p: body_p["y_length"] * leg_length_scale,
+            "claw_x_length": lambda body_p: body_p["y_length"] * claw_length_scale,
             "tail_x_length": lambda p: 0,
             "antenna_x_length": lambda p: 0,
             "fin_x_length": lambda p: 0,
@@ -332,7 +394,7 @@ class CrustaceanFactory(AssetFactory):
                 np.linspace(uniform(0.08, 0.1), uniform(0.55, 0.6), n_limbs)
                 + np.arange(n_limbs) * 0.02
             )[::-1],
-            "leg_angle": uniform(0.42, 0.44),
+            "leg_angle": p.leg_angle if p is not None else uniform(0.42, 0.44),
             "leg_joint": (
                 np.sort(uniform(-5, 5, n_legs))[:: 1 if uniform(0, 1) > 0.5 else -1],
                 np.sort(uniform(0, 10, n_legs)),
@@ -340,7 +402,7 @@ class CrustaceanFactory(AssetFactory):
                 + np.arange(n_legs) * 2,
             ),
             "x_claw_offset": uniform(0.08, 0.1),
-            "claw_angle": uniform(0.44, 0.46),
+            "claw_angle": p.claw_angle if p is not None else uniform(0.44, 0.46),
             "claw_joint": (uniform(-50, -40), uniform(-20, 20), uniform(10, 20)),
             "x_eye": uniform(0.92, 0.96),
             "eye_angle": uniform(0.8, 0.85),
@@ -364,8 +426,19 @@ class CrustaceanFactory(AssetFactory):
             "freq": 1 / log_uniform(100, 200),
         }
 
-    def lobster_params(self):
-        base_leg_curl = uniform(-np.pi * 0.4, np.pi * 0.4)
+    def lobster_params(self, p: CrustaceanParameters | None = None):
+        base_leg_curl = (
+            p.leg_curl if p is not None else uniform(-np.pi * 0.4, np.pi * 0.4)
+        )
+        leg_length_scale = (
+            p.leg_length_scale if p is not None else log_uniform(0.6, 0.8)
+        )
+        claw_length_scale = (
+            p.claw_length_scale if p is not None else log_uniform(1.2, 1.5)
+        )
+        tail_length_scale = (
+            p.tail_length_scale if p is not None else log_uniform(1.2, 1.8)
+        )
         return {
             "body_fn": LobsterBodyFactory,
             "leg_fn": LobsterLegFactory,
@@ -373,23 +446,23 @@ class CrustaceanFactory(AssetFactory):
             "tail_fn": CrustaceanTailFactory,
             "antenna_fn": LobsterAntennaFactory,
             "fin_fn": CrustaceanFinFactory,
-            "leg_x_length": lambda p: p["x_length"] * log_uniform(0.6, 0.8),
-            "claw_x_length": lambda p: p["x_length"] * log_uniform(1.2, 1.5),
-            "tail_x_length": lambda p: p["x_length"] * log_uniform(1.2, 1.8),
-            "antenna_x_length": lambda p: p["x_length"] * log_uniform(1.6, 3.0),
-            "fin_x_length": lambda p: p["y_length"] * log_uniform(1.2, 2.5),
+            "leg_x_length": lambda body_p: body_p["x_length"] * leg_length_scale,
+            "claw_x_length": lambda body_p: body_p["x_length"] * claw_length_scale,
+            "tail_x_length": lambda body_p: body_p["x_length"] * tail_length_scale,
+            "antenna_x_length": lambda body_p: body_p["x_length"] * log_uniform(1.6, 3.0),
+            "fin_x_length": lambda body_p: body_p["y_length"] * log_uniform(1.2, 2.5),
             "x_legs": (
                 np.linspace(0.05, uniform(0.2, 0.25), n_limbs)
                 + np.arange(n_limbs) * 0.02
             )[::-1],
-            "leg_angle": uniform(0.3, 0.35),
+            "leg_angle": p.leg_angle if p is not None else uniform(0.3, 0.35),
             "leg_joint": (
                 uniform(-5, 5, n_legs),
                 uniform(0, 10, n_legs),
                 np.sort(uniform(95, 110, n_legs) + uniform(-8, 8)),
             ),
             "x_claw_offset": uniform(0.08, 0.1),
-            "claw_angle": uniform(0.4, 0.5),
+            "claw_angle": p.claw_angle if p is not None else uniform(0.4, 0.5),
             "claw_joint": (uniform(-80, -70), uniform(-10, 10), uniform(10, 20)),
             "x_eye": uniform(0.8, 0.88),
             "eye_angle": uniform(0.8, 0.85),
@@ -419,8 +492,8 @@ class CrustaceanFactory(AssetFactory):
             "freq": 1 / log_uniform(400, 500),
         }
 
-    def spiny_lobster_params(self):
-        lobster_params = self.lobster_params()
+    def spiny_lobster_params(self, p: CrustaceanParameters | None = None):
+        lobster_params = self.lobster_params(p)
         leg_joint_x, leg_joint_y, leg_joint_z = lobster_params["leg_joint"]
         leg_joint_z_min = np.min(leg_joint_z) + uniform(-10, -5)
         return {

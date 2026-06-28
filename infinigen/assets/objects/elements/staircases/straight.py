@@ -48,10 +48,7 @@ from infinigen.core.placement.detail import sharp_remesh_with_attrs
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.surface import read_attr_data, write_attr_data
 from infinigen.core.tagging import PREFIX
@@ -61,13 +58,25 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 from infinigen.core.util.random import random_general as rg
 
 
-class StraightStaircaseParameters(LegacyBridgeParameters):
-    handrail_cap_width_ratio: Annotated[
-        float, Field(ge=0.2, le=0.5, json_schema_extra={"editable": True})
-    ] = 0.35
-    handrail_cap_segments: Annotated[
-        int, Field(ge=4, le=6, json_schema_extra={"editable": True})
-    ] = 5
+class StraightStaircaseParameters(AssetParameters):
+    pass
+
+
+class MirroredStaircaseParameters(StraightStaircaseParameters):
+    mirror: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = False
+
+
+def _sample_straight_switch_params(seed: int) -> dict[str, bool]:
+    with FixedSeed(seed):
+        return {"mirror": bool(uniform() < 0.5)}
+
+
+def _apply_straight_switch_params(
+    inst: StraightStaircaseFactory, params: MirroredStaircaseParameters
+) -> None:
+    inst.mirror = params.mirror
 
 
 def _straight_staircase_legacy_init(
@@ -176,29 +185,23 @@ class StraightStaircaseFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> StraightStaircaseParameters:
-        return legacy_init_to_parameters(
-            StraightStaircaseParameters,
-            StraightStaircaseFactory,
-            seed,
-            self.coarse,
-            init_fn=_straight_staircase_legacy_init,
-            constants=self._constants_arg,
-        )
-
-    def _sample_spawn_parameters(
-        self, params: StraightStaircaseParameters, seed: int, i: int
-    ) -> StraightStaircaseParameters:
-        return params.model_copy(
-            update={
-                "handrail_cap_width_ratio": uniform(0.2, 0.5),
-                "handrail_cap_segments": int(np.random.randint(4, 7)),
-            }
-        )
+        return StraightStaircaseParameters(seed=seed, **_sample_straight_switch_params(seed))
 
     def apply_parameters(
         self, params: StraightStaircaseParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            _straight_staircase_legacy_init(
+                self,
+                params.seed,
+                self.coarse,
+                constants=self._constants_arg,
+            )
+        with FixedSeed(params.seed):
+            self.mirror = bool(uniform() < 0.5)
+            self.handrail_cap_width_ratio = uniform(0.2, 0.5)
+            self.handrail_cap_segments = int(np.random.randint(4, 7))
+        self._use_fixed_spawn_draws = spawn_scope
 
     def build_size_config(self):
         self.n = np.random.randint(13, 21)
@@ -415,13 +418,29 @@ class StraightStaircaseFactory(ParameterizedAssetFactory, AssetFactory):
 
     def make_single_handrail(self, obj):
         self.extend_line(obj, self.handrail_extension)
+        cap_width = (
+            self.handrail_cap_width_ratio
+            if self._use_fixed_spawn_draws
+            else uniform(0.2, 0.5)
+        )
+        cap_segments = (
+            self.handrail_cap_segments
+            if self._use_fixed_spawn_draws
+            else int(np.random.randint(4, 7))
+        )
         if self.is_handrail_circular:
             surface.add_geomod(
                 obj,
                 geo_radius,
                 apply=True,
-                input_args=[self.handrail_width, 32],
+                input_args=[self.handrail_width, max(cap_segments * 4, 16)],
                 input_kwargs={"to_align_tilt": False},
+            )
+            butil.modify_mesh(
+                obj,
+                "BEVEL",
+                width=self.handrail_width * cap_width,
+                segments=cap_segments,
             )
         else:
             butil.select_none()
@@ -437,16 +456,6 @@ class StraightStaircaseFactory(ParameterizedAssetFactory, AssetFactory):
                 thickness=self.handrail_width * 2,
                 offset=0,
                 solidify_mode="NON_MANIFOLD",
-            )
-            cap_width = (
-                self.handrail_cap_width_ratio
-                if self._use_fixed_spawn_draws
-                else uniform(0.2, 0.5)
-            )
-            cap_segments = (
-                self.handrail_cap_segments
-                if self._use_fixed_spawn_draws
-                else int(np.random.randint(4, 7))
             )
             butil.modify_mesh(
                 obj,

@@ -8,9 +8,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar
-
 import random
+from typing import Annotated, Any, ClassVar
 
 import bpy
 import numpy as np
@@ -24,10 +23,7 @@ from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import (
     AssetParameters,
-    LegacyBridgeParameters,
     ParameterizedAssetFactory,
-    apply_bridge_parameters,
-    legacy_init_to_parameters,
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
@@ -35,6 +31,9 @@ from infinigen.core.util.random import weighted_sample
 
 
 class DeskLampParameters(AssetParameters):
+    reverse_lamp: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
     StandRadius: Annotated[float, Field(ge=0.005, le=0.015, json_schema_extra={"editable": True})]
     BaseRadius: Annotated[float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})]
     BaseHeight: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})]
@@ -43,13 +42,26 @@ class DeskLampParameters(AssetParameters):
     HeadBotRadius: Annotated[float, Field(ge=0.0, le=0.05, json_schema_extra={"editable": True})]
     RackThickness: Annotated[float, Field(ge=0.001, le=0.003, json_schema_extra={"editable": True})]
     height: Annotated[float, Field(ge=0.25, le=0.4, json_schema_extra={"editable": True})]
-    z1: Annotated[float, Field(ge=0.010002, le=0.383766, json_schema_extra={"editable": True})]
-    z2: Annotated[float, Field(ge=0.029471, le=0.383766, json_schema_extra={"editable": True})]
-    lamp_178: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})]
+    z2: Annotated[float, Field(ge=0.029471, le=0.383766, json_schema_extra={"editable": False})]
+    lamp_178: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})]
 
 
-class LampParameters(LegacyBridgeParameters):
-    pass
+class LampParameters(AssetParameters):
+    reverse_lamp: Annotated[
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+    ] = True
+    StandRadius: Annotated[float, Field(ge=0.005, le=0.015, json_schema_extra={"editable": True})]
+    BaseRadius: Annotated[float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})]
+    BaseHeight: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})]
+    ShadeHeight: Annotated[float, Field(ge=0.18, le=0.3, json_schema_extra={"editable": True})]
+    HeadTopRadius: Annotated[float, Field(ge=0.07, le=0.15, json_schema_extra={"editable": True})]
+    HeadBotRadius: Annotated[float, Field(ge=0.0, le=0.05, json_schema_extra={"editable": True})]
+    RackThickness: Annotated[float, Field(ge=0.001, le=0.003, json_schema_extra={"editable": True})]
+    z1: Annotated[float, Field(ge=0.01, le=1.5, json_schema_extra={"editable": True})]
+    z2: Annotated[float, Field(ge=0.01, le=1.5, json_schema_extra={"editable": False})]
+    lamp_178: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ]
 
 
 def _lamp_legacy_init(
@@ -88,21 +100,82 @@ class LampFactory(ParameterizedAssetFactory, AssetFactory):
         super(LampFactory, self).__init__(factory_seed, coarse=coarse)
         self.init_legacy_parameters()
 
+    def _sample_materials(self) -> tuple[dict[str, Any], Any | None, Any | None]:
+        metal_material = weighted_sample(material_assignments.furniture_leg)()
+        lampshade_material = weighted_sample(material_assignments.lampshade)()
+        wrapped_params = {
+            "BlackMaterial": metal_material(),
+            "MetalMaterial": metal_material(),
+            "LampshadeMaterial": lampshade_material(),
+        }
+        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+        scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        scratch = None if U() > scratch_prob else scratch_fn()
+        edge_wear = None if U() > edge_wear_prob else edge_wear_fn()
+        return wrapped_params, scratch, edge_wear
+
     def _sample_init_parameters(self, seed: int) -> LampParameters:
-        return legacy_init_to_parameters(
-            LampParameters,
-            LampFactory,
-            seed,
-            self.coarse,
-            self._lamp_dimensions,
-            self._lamp_type,
-            init_fn=_lamp_legacy_init,
+        base_height = U(0.01, 0.03)
+        materials, scratch, edge_wear = self._sample_materials()
+        self._material_params = materials
+        self._scratch = scratch
+        self._edge_wear = edge_wear
+        with FixedSeed(seed):
+            height = U(1.0, 1.5)
+            z1 = U(base_height, height)
+            z2 = U(z1, height)
+        return LampParameters(
+            seed=seed,
+            reverse_lamp=True,
+            StandRadius=U(0.005, 0.015),
+            BaseRadius=U(0.05, 0.15),
+            BaseHeight=base_height,
+            ShadeHeight=U(0.18, 0.3),
+            HeadTopRadius=U(0.07, 0.15),
+            HeadBotRadius=U(0, 0.05),
+            RackThickness=U(0.001, 0.003),
+            z1=z1,
+            z2=z2,
+            lamp_178=U(),
         )
 
     def apply_parameters(
         self, params: LampParameters, *, spawn_scope: bool = True
     ) -> None:
-        apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        if not hasattr(self, "_material_params"):
+            materials, scratch, edge_wear = self._sample_materials()
+            self._material_params = materials
+            self._scratch = scratch
+            self._edge_wear = edge_wear
+        self.dimensions = self._lamp_dimensions
+        self.lamp_type = self._lamp_type
+        self.bulb_fac = PointLampFactory(params.seed)
+        self.bulb_fac.params["Temperature"] = max(
+            self.bulb_fac.params["Temperature"] * 0.6, 2500
+        )
+        self.bulb_fac.params["Wattage"] *= 0.5
+        # NOTE: height does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.height = U(1.0, 1.5)
+        self.params = {
+            "StandRadius": params.StandRadius,
+            "BaseRadius": params.BaseRadius,
+            "BaseHeight": params.BaseHeight,
+            "ShadeHeight": params.ShadeHeight,
+            "HeadTopRadius": params.HeadTopRadius,
+            "HeadBotRadius": params.HeadTopRadius + params.HeadBotRadius,
+            "ReverseLamp": params.reverse_lamp,
+            "RackThickness": params.RackThickness,
+            "CurvePoint1": (0.0, 0.0, params.z1),
+            "CurvePoint2": (0.0, 0.0, params.z2),
+            "CurvePoint3": (0.0, 0.0, self.height),
+            **self._material_params,
+        }
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
+        self._use_fixed_spawn_draws = spawn_scope
+        if spawn_scope:
+            self._lamp_178 = params.lamp_178
 
     lamp_default_params = {
         "DeskLamp": {
@@ -229,7 +302,8 @@ class LampFactory(ParameterizedAssetFactory, AssetFactory):
             apply=True,
         )
 
-        if np.random.uniform() < 0.6:
+        bulb_draw = self._lamp_178 if self._use_fixed_spawn_draws else U()
+        if bulb_draw < 0.6:
             bulb = self.bulb_fac(i)
             butil.parent_to(bulb, obj, no_inverse=True, no_transform=True)
             bulb.location.z = obj.bound_box[-2][2] - self.params["ShadeHeight"] * 0.5
@@ -275,8 +349,7 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_init_parameters(self, seed: int) -> DeskLampParameters:
         base_height = U(0.01, 0.03)
         height = U(0.25, 0.4)
-        z1 = U(base_height, height)
-        z2 = U(z1, height)
+        z2 = U(base_height, height)
         head_top_radius = U(0.07, 0.15)
         materials, scratch, edge_wear = self._sample_materials()
         self._material_params = materials
@@ -284,6 +357,7 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
         self._edge_wear = edge_wear
         return DeskLampParameters(
             seed=seed,
+            reverse_lamp=True,
             StandRadius=U(0.005, 0.015),
             BaseRadius=U(0.05, 0.15),
             BaseHeight=base_height,
@@ -292,7 +366,6 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
             HeadBotRadius=U(0, 0.05),
             RackThickness=U(0.001, 0.003),
             height=height,
-            z1=z1,
             z2=z2,
             lamp_178=U(),
         )
@@ -305,6 +378,9 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
             self._material_params = materials
             self._scratch = scratch
             self._edge_wear = edge_wear
+        # NOTE: z1 does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.z1 = U(params.BaseHeight, params.height)
         self.params = {
             "StandRadius": params.StandRadius,
             "BaseRadius": params.BaseRadius,
@@ -312,9 +388,9 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
             "ShadeHeight": params.ShadeHeight,
             "HeadTopRadius": params.HeadTopRadius,
             "HeadBotRadius": params.HeadTopRadius + params.HeadBotRadius,
-            "ReverseLamp": True,
+            "ReverseLamp": params.reverse_lamp,
             "RackThickness": params.RackThickness,
-            "CurvePoint1": (0.0, 0.0, params.z1),
+            "CurvePoint1": (0.0, 0.0, self.z1),
             "CurvePoint2": (0.0, 0.0, params.z2),
             "CurvePoint3": (0.0, 0.0, params.height),
             **self._material_params,
@@ -353,8 +429,18 @@ class DeskLampFactory(ParameterizedAssetFactory, AssetFactory):
             self.edge_wear.apply(assets)
 
 
-class FloorLampParameters(LegacyBridgeParameters):
-    pass
+class FloorLampParameters(AssetParameters):
+    StandRadius: Annotated[float, Field(ge=0.005, le=0.015, json_schema_extra={"editable": True})]
+    BaseRadius: Annotated[float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})]
+    BaseHeight: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})]
+    ShadeHeight: Annotated[float, Field(ge=0.18, le=0.3, json_schema_extra={"editable": True})]
+    HeadTopRadius: Annotated[float, Field(ge=0.07, le=0.15, json_schema_extra={"editable": True})]
+    HeadBotRadius: Annotated[float, Field(ge=0.0, le=0.05, json_schema_extra={"editable": True})]
+    RackThickness: Annotated[float, Field(ge=0.001, le=0.003, json_schema_extra={"editable": True})]
+    z2: Annotated[float, Field(ge=0.01, le=1.5, json_schema_extra={"editable": False})]
+    lamp_178: Annotated[
+        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+    ]
 
 
 def _floor_lamp_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
@@ -362,23 +448,116 @@ def _floor_lamp_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
     _lamp_legacy_init(inst, seed, coarse, [1.0, 1.0, 1.0], lamp_type)
 
 
-class FloorLampFactory(LampFactory):
+class FloorLampFactory(ParameterizedAssetFactory, AssetFactory):
     parameters_model: ClassVar[type[AssetParameters]] = FloorLampParameters
 
     def __init__(self, factory_seed, coarse=False):
-        AssetFactory.__init__(self, factory_seed, coarse)
-        self._lamp_dimensions = [1.0, 1.0, 1.0]
-        self._lamp_type = "FloorLamp1"
+        super().__init__(factory_seed, coarse=coarse)
+        self.bulb_fac = PointLampFactory(factory_seed)
+        self.bulb_fac.params["Temperature"] = max(
+            self.bulb_fac.params["Temperature"] * 0.6, 2500
+        )
+        self.bulb_fac.params["Wattage"] *= 0.5
         self.init_legacy_parameters()
 
+    def _sample_materials(self) -> tuple[dict[str, Any], Any | None, Any | None]:
+        metal_material = weighted_sample(material_assignments.furniture_leg)()
+        lampshade_material = weighted_sample(material_assignments.lampshade)()
+        wrapped_params = {
+            "BlackMaterial": metal_material(),
+            "MetalMaterial": metal_material(),
+            "LampshadeMaterial": lampshade_material(),
+        }
+        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+        scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        scratch = None if U() > scratch_prob else scratch_fn()
+        edge_wear = None if U() > edge_wear_prob else edge_wear_fn()
+        return wrapped_params, scratch, edge_wear
+
     def _sample_init_parameters(self, seed: int) -> FloorLampParameters:
-        return legacy_init_to_parameters(
-            FloorLampParameters,
-            FloorLampFactory,
-            seed,
-            self.coarse,
-            init_fn=_floor_lamp_legacy_init,
+        base_height = U(0.01, 0.03)
+        materials, scratch, edge_wear = self._sample_materials()
+        self._material_params = materials
+        self._scratch = scratch
+        self._edge_wear = edge_wear
+        with FixedSeed(seed):
+            height = U(1.0, 1.5)
+            z1 = U(base_height, height)
+            z2 = U(z1, height)
+        return FloorLampParameters(
+            seed=seed,
+            StandRadius=U(0.005, 0.015),
+            BaseRadius=U(0.05, 0.15),
+            BaseHeight=base_height,
+            ShadeHeight=U(0.18, 0.3),
+            HeadTopRadius=U(0.07, 0.15),
+            HeadBotRadius=U(0, 0.05),
+            RackThickness=U(0.001, 0.003),
+            z2=z2,
+            lamp_178=U(),
         )
+
+    def apply_parameters(
+        self, params: FloorLampParameters, *, spawn_scope: bool = True
+    ) -> None:
+        if not hasattr(self, "_material_params"):
+            materials, scratch, edge_wear = self._sample_materials()
+            self._material_params = materials
+            self._scratch = scratch
+            self._edge_wear = edge_wear
+        # NOTE: z1 does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self.z1 = U(params.BaseHeight, params.height)
+        # NOTE: height and reverse_lamp_draw do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            height = U(1.0, 1.5)
+            reverse_lamp = U() >= 0.5
+        self.params = {
+            "StandRadius": params.StandRadius,
+            "BaseRadius": params.BaseRadius,
+            "BaseHeight": params.BaseHeight,
+            "ShadeHeight": params.ShadeHeight,
+            "HeadTopRadius": params.HeadTopRadius,
+            "HeadBotRadius": params.HeadTopRadius + params.HeadBotRadius,
+            "ReverseLamp": reverse_lamp,
+            "RackThickness": params.RackThickness,
+            "CurvePoint1": (0.0, 0.0, self.z1),
+            "CurvePoint2": (0.0, 0.0, params.z2),
+            "CurvePoint3": (0.0, 0.0, height),
+            **self._material_params,
+        }
+        self.scratch = self._scratch
+        self.edge_wear = self._edge_wear
+        self._use_fixed_spawn_draws = spawn_scope
+        if spawn_scope:
+            self._lamp_178 = params.lamp_178
+
+    def create_asset(self, i, **params):
+        obj = butil.spawn_cube()
+        butil.modify_mesh(
+            obj,
+            "NODES",
+            node_group=nodegroup_lamp_geometry(),
+            ng_inputs=self.params,
+            apply=True,
+        )
+
+        bulb_draw = self._lamp_178 if self._use_fixed_spawn_draws else U()
+        if bulb_draw < 0.6:
+            bulb = self.bulb_fac(i)
+            butil.parent_to(bulb, obj, no_inverse=True, no_transform=True)
+            bulb.location.z = obj.bound_box[-2][2] - self.params["ShadeHeight"] * 0.5
+
+        with butil.SelectObjects(obj):
+            bpy.ops.object.shade_flat()
+
+        return obj
+
+    def finalize_assets(self, assets):
+        if self.scratch:
+            self.scratch.apply(assets)
+        if self.edge_wear:
+            self.edge_wear.apply(assets)
 
 
 @node_utils.to_nodegroup("nodegroup_bulb", singleton=False, type="GeometryNodeTree")

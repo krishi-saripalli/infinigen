@@ -25,27 +25,39 @@ from infinigen.assets.utils.draw import remesh_fill
 from infinigen.assets.utils.object import new_circle
 from infinigen.assets.utils.uv import wrap_front_back
 from infinigen.core.placement.factory import AssetFactory
-from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
-from infinigen.core.util.math import FixedSeed
+from infinigen.core.placement.parameters import (
+    AssetParameters,
+    ParameterizedAssetFactory,
+)
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class ShirtParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.45, le=0.55, json_schema_extra={"editable": True})]
-    size: Annotated[float, Field(ge=0.25, le=0.3, json_schema_extra={"editable": True})]
     size_neck: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
     sleeve_angle: Annotated[
-        float, Field(ge=0.523599, le=0.785398, json_schema_extra={"editable": True})
+        float, Field(ge=0.523599, le=0.785398, json_schema_extra={"editable": False})
     ]
     sleeve_width: Annotated[float, Field(ge=0.14, le=0.18, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})]
-    y_anchors: Annotated[float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})] = (
+    y_anchors: Annotated[float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": False})] = (
         0.5
     )
     bevel_width_factor: Annotated[
-        float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})
+        float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": False})
     ] = 0.125
+    shirt_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": True,
+                "kind": "enum",
+                "choices": ["short", "long"],
+            }
+        ),
+    ] = "short"
 
 
 class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
@@ -64,17 +76,15 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> ShirtParameters:
         width = log_uniform(0.45, 0.55)
-        size_offset = uniform(0.25, 0.3)
-        size = width + size_offset
         size_neck_frac = uniform(0.1, 0.15)
         return ShirtParameters(
             seed=seed,
             width=width,
-            size=size_offset,
             size_neck=size_neck_frac,
             sleeve_angle=uniform(np.pi / 6, np.pi / 4),
             sleeve_width=uniform(0.14, 0.18),
             thickness=log_uniform(0.02, 0.03),
+            shirt_type=str(np.random.choice(["short", "long"])),
         )
 
     def _sample_spawn_parameters(
@@ -90,9 +100,11 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: ShirtParameters, *, spawn_scope: bool = True
     ) -> None:
-        size = params.width + params.size
+        # NOTE: size sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
-            shirt_type = np.random.choice(["short", "long"])
+            size_offset = uniform(0.25, 0.3)
+        size = params.width + size_offset
+        with FixedSeed(params.seed):
             surface_gen_class = weighted_sample(material_assignments.pants)
             surface_mat = surface_gen_class()()
             if surface_mat == ArtFabric:
@@ -100,8 +112,8 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
         self.width = params.width
         self.size = size
         self.size_neck = params.size_neck * self.size
-        self.type = shirt_type
-        self.sleeve_length = self._sample_sleeve_length(shirt_type, size)
+        self.type = params.shirt_type
+        self.sleeve_length = self._sample_sleeve_length(params.shirt_type, size)
         self.sleeve_width = params.sleeve_width
         self.sleeve_angle = params.sleeve_angle
         self.thickness = params.thickness

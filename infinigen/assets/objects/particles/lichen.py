@@ -25,18 +25,15 @@ from infinigen.core.placement.parameters import AssetParameters, ParameterizedAs
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
 from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed
 from infinigen.infinigen_gpl.extras.diff_growth import build_diff_growth
 
 
 class LichenParameters(AssetParameters):
-    base_hue: Annotated[float, Field(ge=0.15, le=0.3, json_schema_extra={"editable": True})]
     n: Annotated[int, Field(ge=4, le=5, json_schema_extra={"editable": True})]
     max_polygon_factor: Annotated[
         float, Field(ge=0.2, le=1.0, json_schema_extra={"editable": True})
     ] = 0.5
-    shader_hue_offset: Annotated[
-        float, Field(ge=-0.04, le=0.04, json_schema_extra={"editable": True})
-    ] = 0.0
 
 
 class LichenFactory(ParameterizedAssetFactory, AssetFactory):
@@ -47,32 +44,35 @@ class LichenFactory(ParameterizedAssetFactory, AssetFactory):
         super(LichenFactory, self).__init__(factory_seed)
         self.init_legacy_parameters()
 
+    def _sample_base_hue(self, seed: int) -> float:
+        # NOTE: base_hue is sampled on self in apply_parameters; excluded from quartet sampling (material-only, not exported geometry).
+        with FixedSeed(seed):
+            return uniform(0.15, 0.3)
+
     def _sample_init_parameters(self, seed: int) -> LichenParameters:
+        self.base_hue = self._sample_base_hue(seed)
         return LichenParameters(
             seed=seed,
-            base_hue=uniform(0.15, 0.3),
             n=int(np.random.randint(4, 6)),
+            max_polygon_factor=uniform(0.2, 1),
         )
 
     def _sample_spawn_parameters(
         self, params: LichenParameters, seed: int, i: int
     ) -> LichenParameters:
-        return params.model_copy(
-            update={
-                "max_polygon_factor": uniform(0.2, 1),
-                "shader_hue_offset": uniform(-0.04, 0.04),
-            }
-        )
+        return params.model_copy(update={"max_polygon_factor": uniform(0.2, 1)})
 
     def apply_parameters(
         self, params: LichenParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.base_hue = params.base_hue
+        self.base_hue = self._sample_base_hue(params.seed)
         self.n = params.n
+        # NOTE: shader_hue_offset resampled in _sample_spawn_parameters overwrote edits; sampled on self from seed, excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            self._shader_hue_offset = uniform(-0.04, 0.04)
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             self.max_polygon_factor = params.max_polygon_factor
-            self.shader_hue_offset = params.shader_hue_offset
 
     @staticmethod
     def build_lichen_circle_mesh(n):
@@ -163,11 +163,7 @@ class LichenFactory(ParameterizedAssetFactory, AssetFactory):
         )
         obj.scale = [0.004] * 3
         butil.apply_transform(obj)
-        shader_hue = (
-            (self.base_hue + self.shader_hue_offset) % 1
-            if self._use_fixed_spawn_draws
-            else (self.base_hue + uniform(-0.04, 0.04)) % 1
-        )
+        shader_hue = (self.base_hue + self._shader_hue_offset) % 1
         assign_material(
             obj,
             surface.shaderfunc_to_material(LichenFactory.shader_lichen, shader_hue),
