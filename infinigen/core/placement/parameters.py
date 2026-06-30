@@ -93,6 +93,7 @@ class AssetParameters(BaseModel):
         current = getattr(self, field)
         if kind == "bool":
             return [not current]
+        # TODO: doesn't this only make sense if the generator's internal logic for this draw has a threshold of exactly 0.5? Shouldn't we store the `threshold` on the field and use it?
         if kind == "draw_bool":
             return [0.0 if float(current) >= 0.5 else 1.0]
         if kind == "enum":
