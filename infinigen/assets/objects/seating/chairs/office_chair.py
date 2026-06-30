@@ -76,15 +76,6 @@ def geometry_assemble_chair(nw: NodeWrangler, **kwargs):
 class OfficeChairParameters(AssetParameters):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
-    top_profile_width: Annotated[
-        float,
-        Field(
-            ge=0.5,
-            le=0.6,
-            alias="Top Profile Width",
-            json_schema_extra={"editable": False},
-        ),
-    ]
     top_thickness: Annotated[
         float,
         Field(
@@ -93,10 +84,6 @@ class OfficeChairParameters(AssetParameters):
             alias="Top Thickness",
             json_schema_extra={"editable": True},
         ),
-    ]
-    top_mid_pos: Annotated[
-        float,
-        Field(ge=0.4, le=0.6, alias="Top Mid Pos", json_schema_extra={"editable": False}),
     ]
     height: Annotated[
         float, Field(ge=1.0, le=1.4, alias="Height", json_schema_extra={"editable": True})
@@ -212,21 +199,22 @@ class OfficeChairFactory(ParameterizedAssetFactory, AssetFactory):
     def _build_geometry_params(
         self, params: OfficeChairParameters
     ) -> tuple[dict[str, Any], Any | None, Any | None]:
+        with FixedSeed(params.seed):
+            top_profile_width = uniform(0.5, 0.6)
+            top_mid_pos = uniform(0.4, 0.6)
         dimensions = (
             self.dimensions
             if self.dimensions is not None
-            else (params.top_profile_width, params.top_profile_width, params.height)
+            else (top_profile_width, top_profile_width, params.height)
         )
         with FixedSeed(params.seed):
             geometry, _ = self._sample_geometry_parameters(dimensions)
-        # NOTE: top profile params interact with leg_style branch (single_stand/wheeled/straight resampled each seed).
-        geometry["Top Profile Width"] = params.top_profile_width
+        geometry["Top Profile Width"] = top_profile_width
         geometry["Top Thickness"] = params.top_thickness
-        # NOTE: top_seat_bent and top_back_bent do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
         with FixedSeed(params.seed):
             geometry["Top Seat Bent"] = uniform(-1.5, -0.4)
             geometry["Top Back Bent"] = uniform(-1, -0.1)
-        geometry["Top Mid Pos"] = params.top_mid_pos
+        geometry["Top Mid Pos"] = top_mid_pos
         geometry["Height"] = params.height
         geometry["Top Height"] = params.height - params.top_thickness
         with FixedSeed(params.seed):
@@ -238,9 +226,7 @@ class OfficeChairFactory(ParameterizedAssetFactory, AssetFactory):
         return OfficeChairParameters.model_validate(
             {
                 "seed": seed,
-                "Top Profile Width": geometry["Top Profile Width"],
                 "Top Thickness": geometry["Top Thickness"],
-                "Top Mid Pos": geometry["Top Mid Pos"],
                 "Height": geometry["Height"],
             }
         )

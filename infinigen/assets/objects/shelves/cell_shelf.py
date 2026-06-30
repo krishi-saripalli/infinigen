@@ -1534,7 +1534,7 @@ class CellShelfParameters(AssetParameters):
         float, Field(ge=0.7, le=2.1, json_schema_extra={"editable": True})
     ]
     dimension_2: Annotated[
-        float, Field(ge=0.35, le=2.1, json_schema_extra={"editable": True})
+        float, Field(ge=0.35, le=2.1, json_schema_extra={"editable": False})
     ]
     has_base_frame: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})

@@ -27,11 +27,10 @@ from infinigen.core.util.random import weighted_sample
 
 class BalloonParameters(AssetParameters):
     thickness: Annotated[float, Field(ge=0.06, le=0.1, json_schema_extra={"editable": False})]
-    tension_stiffness: Annotated[
-        float, Field(ge=0.0, le=5.0, json_schema_extra={"editable": True})
+    tension_stiffness: Annotated[        float, Field(ge=0.0, le=5.0, json_schema_extra={"editable": False})
     ] = 0.0
     uniform_pressure_force: Annotated[
-        float, Field(ge=10.0, le=20.0, json_schema_extra={"editable": True})
+        float, Field(ge=10.0, le=20.0, json_schema_extra={"editable": False})
     ] = 15.0
 
 

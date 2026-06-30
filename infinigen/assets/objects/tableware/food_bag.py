@@ -33,8 +33,6 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class FoodBagParameters(AssetParameters):
-    # NOTE: width/depth/curve resampled from length inside is_packet branch, masking direct length effect.
-    length: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": False})]
     is_packet: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
@@ -67,11 +65,9 @@ class FoodBagFactory(ParameterizedAssetFactory, AssetFactory):
             return bool(uniform() < 0.2)
 
     def _sample_init_parameters(self, seed: int) -> FoodBagParameters:
-        length = uniform(0.1, 0.3)
         is_packet = bool(uniform() < 0.6)
         return FoodBagParameters(
             seed=seed,
-            length=length,
             is_packet=is_packet,
             extrude_length=uniform(0.05, 0.1),
         )
@@ -81,11 +77,11 @@ class FoodBagFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         is_packet = params.is_packet
         with FixedSeed(params.seed):
-            width, depth, curve_profile = self._sample_shape(params.length, is_packet)
+            self.length = uniform(0.1, 0.3)
+            width, depth, curve_profile = self._sample_shape(self.length, is_packet)
             surface_mat = weighted_sample(material_assignments.graphicdesign)()()
             if surface_mat == text.Text:
                 surface_mat = surface_mat(params.seed)
-        self.length = params.length
         self.is_packet = is_packet
         self.width = width
         self.depth = depth

@@ -38,8 +38,6 @@ class DishwasherParameters(AssetParameters):
     DoorThickness: Annotated[
         float, Field(ge=0.035, le=0.13, json_schema_extra={"editable": True})
     ]
-    RackRadius: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
-    RackAmount: Annotated[int, Field(ge=2, le=3, json_schema_extra={"editable": True})]
 
 
 @gin.configurable
@@ -98,8 +96,6 @@ class DishwasherFactory(ParameterizedAssetFactory, AssetFactory):
             Width=geometry["Width"],
             Height=geometry["Height"],
             DoorThickness=geometry["DoorThickness"],
-            RackRadius=geometry["RackRadius"],
-            RackAmount=geometry["RackAmount"],
         )
 
     def _resolve_mesh_params(self, params: DishwasherParameters) -> None:
@@ -108,6 +104,8 @@ class DishwasherFactory(ParameterizedAssetFactory, AssetFactory):
             materials, scratch, edge_wear = self._sample_materials()
         self.params = {
             **params.model_dump(exclude={"seed"}),
+            "RackRadius": fixed["RackRadius"],
+            "RackAmount": fixed["RackAmount"],
             "DoorRotation": fixed["DoorRotation"],
             "BrandName": fixed["BrandName"],
             **materials,

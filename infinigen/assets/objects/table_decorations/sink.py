@@ -36,15 +36,6 @@ class SinkParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.4, le=1.0, json_schema_extra={"editable": True})]
     depth: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": False})]
     upper_height: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})]
-    lower_height: Annotated[float, Field(ge=0.0, le=0.01, json_schema_extra={"editable": True})]
-    hole_radius: Annotated[float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})]
-    margin: Annotated[float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})]
-    watertap_margin: Annotated[
-        float, Field(ge=0.1, le=0.12, json_schema_extra={"editable": True})
-    ]
-    protrude_above_counter: Annotated[
-        float, Field(ge=0.01, le=0.025, json_schema_extra={"editable": True})
-    ]
 
 
 class SinkFactory(ParameterizedAssetFactory, AssetFactory):
@@ -84,11 +75,6 @@ class SinkFactory(ParameterizedAssetFactory, AssetFactory):
             width=U(0.4, 1.0),
             depth=U(0.4, 0.5),
             upper_height=upper_height,
-            lower_height=U(0.00, 0.01),
-            hole_radius=U(0.02, 0.05),
-            margin=U(0.02, 0.05),
-            watertap_margin=U(0.1, 0.12),
-            protrude_above_counter=U(0.01, 0.025),
         )
 
     def apply_parameters(
@@ -96,17 +82,22 @@ class SinkFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         self._sample_material_state(params.seed)
         self.dimensions = self._sink_dimensions
-        # NOTE: upper_height is overridden when factory is constructed with upper_height= kwarg.
+        with FixedSeed(params.seed):
+            lower_height = U(0.00, 0.01)
+            hole_radius = U(0.02, 0.05)
+            margin = U(0.02, 0.05)
+            watertap_margin = U(0.1, 0.12)
+            protrude_above_counter = U(0.01, 0.025)
         self.params = {
             "Width": params.width,
             "Depth": params.depth,
             "Curvature": 1.0,
             "Upper Height": params.upper_height,
-            "Lower Height": params.lower_height,
-            "HoleRadius": params.hole_radius,
-            "Margin": params.margin,
-            "WaterTapMargin": params.watertap_margin,
-            "ProtrudeAboveCounter": params.protrude_above_counter,
+            "Lower Height": lower_height,
+            "HoleRadius": hole_radius,
+            "Margin": margin,
+            "WaterTapMargin": watertap_margin,
+            "ProtrudeAboveCounter": protrude_above_counter,
             **self._material_params,
         }
         self.scratch = self._scratch

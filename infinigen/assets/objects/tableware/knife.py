@@ -33,14 +33,6 @@ class KnifeParameters(AssetParameters):
     x_length: Annotated[float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})]
     y_length: Annotated[float, Field(ge=0.1, le=0.5, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": False})]
-    lower_thresh: Annotated[
-        float,
-        Field(
-            ge=0.5,
-            le=0.8,
-            json_schema_extra={"editable": False},
-        ),
-    ]
     scratch_draw: Annotated[
         float,
         Field(
@@ -108,7 +100,6 @@ class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
             x_length=log_uniform(0.4, 0.7),
             y_length=y_length,
             thickness=thickness,
-            lower_thresh=base["lower_thresh"],
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
             has_guard=has_guard,
@@ -135,14 +126,15 @@ class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
         # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
             self.scale = log_uniform(0.2, 0.3)
-            # NOTE: guard_depth_mult, y_guard_ratio, and y_off_rand do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            base = sample_tableware_base(params.seed)
+            self._lower_thresh = base["lower_thresh"]
             guard_depth_mult = log_uniform(0.2, 1.0)
             y_guard_ratio = log_uniform(0.2, 0.4)
             self.y_off_rand = uniform(0, 1)
         apply_tableware_from_draws(
             self,
             seed=params.seed,
-            lower_thresh=params.lower_thresh,
+            lower_thresh=self._lower_thresh,
             scale=self.scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,

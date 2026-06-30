@@ -35,13 +35,9 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class ShirtParameters(AssetParameters):
-    width: Annotated[float, Field(ge=0.45, le=0.55, json_schema_extra={"editable": True})]
-    size_neck: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
     sleeve_angle: Annotated[
         float, Field(ge=0.523599, le=0.785398, json_schema_extra={"editable": False})
     ]
-    sleeve_width: Annotated[float, Field(ge=0.14, le=0.18, json_schema_extra={"editable": True})]
-    thickness: Annotated[float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})]
     y_anchors: Annotated[float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": False})] = (
         0.5
     )
@@ -74,16 +70,17 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
             case _:
                 return size / 2 + uniform(-0.05, 0.0)
 
+    def _sample_shirt_tier1(self) -> None:
+        self._width = log_uniform(0.45, 0.55)
+        self._size_neck_frac = uniform(0.1, 0.15)
+        self._sleeve_width = uniform(0.14, 0.18)
+        self._thickness = log_uniform(0.02, 0.03)
+
     def _sample_init_parameters(self, seed: int) -> ShirtParameters:
-        width = log_uniform(0.45, 0.55)
-        size_neck_frac = uniform(0.1, 0.15)
+        self._sample_shirt_tier1()
         return ShirtParameters(
             seed=seed,
-            width=width,
-            size_neck=size_neck_frac,
             sleeve_angle=uniform(np.pi / 6, np.pi / 4),
-            sleeve_width=uniform(0.14, 0.18),
-            thickness=log_uniform(0.02, 0.03),
             shirt_type=str(np.random.choice(["short", "long"])),
         )
 
@@ -100,23 +97,25 @@ class ShirtFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: ShirtParameters, *, spawn_scope: bool = True
     ) -> None:
-        # NOTE: size sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
+        if not hasattr(self, "_width"):
+            with FixedSeed(params.seed):
+                self._sample_shirt_tier1()
         with FixedSeed(params.seed):
             size_offset = uniform(0.25, 0.3)
-        size = params.width + size_offset
+        size = self._width + size_offset
         with FixedSeed(params.seed):
             surface_gen_class = weighted_sample(material_assignments.pants)
             surface_mat = surface_gen_class()()
             if surface_mat == ArtFabric:
                 surface_mat = surface_mat(params.seed)
-        self.width = params.width
+        self.width = self._width
         self.size = size
-        self.size_neck = params.size_neck * self.size
+        self.size_neck = self._size_neck_frac * self.size
         self.type = params.shirt_type
         self.sleeve_length = self._sample_sleeve_length(params.shirt_type, size)
-        self.sleeve_width = params.sleeve_width
+        self.sleeve_width = self._sleeve_width
         self.sleeve_angle = params.sleeve_angle
-        self.thickness = params.thickness
+        self.thickness = self._thickness
         self.surface = surface_mat
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:

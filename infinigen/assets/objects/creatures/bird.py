@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from typing import Annotated, Any, ClassVar
 
 import bpy
@@ -835,21 +837,6 @@ class FlyingBirdParameters(LegacyBridgeParameters):
     wing_len_factor: Annotated[
         float, Field(ge=0.6, le=1.5, json_schema_extra={"editable": True})
     ] = 1.0
-    extension: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.9
-    wing_width: Annotated[
-        float, Field(ge=0.08, le=0.15, json_schema_extra={"editable": True})
-    ] = 0.115
-    feather_density: Annotated[
-        float, Field(ge=25.0, le=40.0, json_schema_extra={"editable": True})
-    ] = 32.5
-    eye_radius: Annotated[
-        float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
-    ] = 0.02
-    head_joint: Annotated[
-        float, Field(ge=8.0, le=28.0, json_schema_extra={"editable": True})
-    ] = 18.0
 
 
 @gin.configurable
@@ -891,11 +878,6 @@ class FlyingBirdFactory(ParameterizedAssetFactory, AssetFactory):
         spawn.update(
             {
                 "wing_len_factor": clip_gaussian(1.0, 0.2, 0.6, 1.5),
-                "extension": U(0.8, 1),
-                "wing_width": U(0.08, 0.15),
-                "feather_density": U(25, 40),
-                "eye_radius": N(0.02, 0.005),
-                "head_joint": N(18, 5),
             }
         )
         return params.model_copy(update=spawn)
@@ -904,8 +886,24 @@ class FlyingBirdFactory(ParameterizedAssetFactory, AssetFactory):
         self, params: FlyingBirdParameters, *, spawn_scope: bool = True
     ) -> None:
         apply_bridge_parameters(self, params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            self._extension = U(0.8, 1)
+            self._wing_width = U(0.08, 0.15)
+            self._feather_density = U(25, 40)
+            self._eye_radius = N(0.02, 0.005)
+            self._head_joint = N(18, 5)
         if spawn_scope:
-            self._flying_bird_params = params
+            runtime = params.model_dump()
+            runtime.update(
+                {
+                    "extension": self._extension,
+                    "wing_width": self._wing_width,
+                    "feather_density": self._feather_density,
+                    "eye_radius": self._eye_radius,
+                    "head_joint": self._head_joint,
+                }
+            )
+            self._flying_bird_params = SimpleNamespace(**runtime)
 
     def create_placeholder(self, i, loc, rot):
         p = butil.spawn_cube(size=3)

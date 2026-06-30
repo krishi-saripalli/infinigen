@@ -29,7 +29,6 @@ class BowlParameters(AssetParameters):
     thickness_ratio: Annotated[
         float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
     ]
-    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
     x_mid: Annotated[float, Field(ge=0.8, le=0.95, json_schema_extra={"editable": False})]
     z_length: Annotated[float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": True})]
     has_inside: Annotated[
@@ -70,7 +69,6 @@ class BowlFactory(ParameterizedAssetFactory, TablewareFactory):
         return BowlParameters(
             seed=seed,
             thickness_ratio=uniform(0.01, 0.03),
-            lower_thresh=base["lower_thresh"],
             x_mid=uniform(0.8, 0.95),
             z_length=log_uniform(0.4, 0.8),
             has_inside=uniform() < 0.5,
@@ -89,10 +87,12 @@ class BowlFactory(ParameterizedAssetFactory, TablewareFactory):
         # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
             self.scale = log_uniform(0.15, 0.4)
+            base = sample_tableware_base(params.seed)
+            self._lower_thresh = base["lower_thresh"]
         apply_tableware_from_draws(
             self,
             seed=params.seed,
-            lower_thresh=params.lower_thresh,
+            lower_thresh=self._lower_thresh,
             scale=self.scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,

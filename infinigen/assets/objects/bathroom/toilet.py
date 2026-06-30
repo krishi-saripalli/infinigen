@@ -40,7 +40,7 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 class ToiletParameters(AssetParameters):
     height_ratio: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": False})]
-    tank_height_ratio: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})]
+    tank_height_ratio: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": False})]
     tank_cap_extrude: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = False

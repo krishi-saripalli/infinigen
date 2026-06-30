@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Annotated, Any, ClassVar
 
 import bpy
-from numpy.random import choice, normal, uniform
+from numpy.random import choice, uniform
 from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
@@ -38,7 +38,7 @@ from infinigen.core.placement.parameters import (
     ParameterizedAssetFactory,
 )
 from infinigen.core.surface import NoApply
-from infinigen.core.util.math import FixedSeed
+from infinigen.core.util.math import FixedSeed, int_hash
 from infinigen.core.util.random import weighted_sample
 
 
@@ -199,7 +199,7 @@ def geometry_assemble_table(nw: NodeWrangler, **kwargs):
 
 
 class TableDiningParameters(AssetParameters):
-    width: Annotated[float, Field(ge=0.91, le=1.16, json_schema_extra={"editable": True})]
+    width: Annotated[float, Field(ge=0.91, le=1.16, json_schema_extra={"editable": False})]
     dimensions: Annotated[float, Field(ge=0.65, le=0.85, json_schema_extra={"editable": True})]
     top_thickness: Annotated[
         float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": False})
@@ -219,7 +219,7 @@ class TableDiningParameters(AssetParameters):
 
 
 class CoffeeTableParameters(TableDiningParameters):
-    width: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})]
+    width: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": False})]
     dimensions: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": True})]
     # NOTE: effect depends on sampled leg style.
     top_thickness: Annotated[
@@ -232,7 +232,7 @@ class CoffeeTableParameters(TableDiningParameters):
 
 
 class SideTableParameters(TableDiningParameters):
-    width: Annotated[float, Field(ge=0.45, le=0.65, json_schema_extra={"editable": True})]
+    width: Annotated[float, Field(ge=0.45, le=0.65, json_schema_extra={"editable": False})]
     dimensions: Annotated[float, Field(ge=0.4, le=0.65, json_schema_extra={"editable": True})]
     top_thickness: Annotated[
         float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": False})
@@ -274,17 +274,23 @@ class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
             return self._table_dimensions
         return spawn["length"], params.width, params.dimensions
 
+    def _spawn_length(self, params: TableDiningParameters) -> float:
+        if self._table_dimensions is not None:
+            return self._table_dimensions[0]
+        if params.dining_table_230 < 0.7:
+            return uniform(1.4, 2.8)
+        schema = self.parameters_model.model_json_schema()["properties"]["width"]
+        with FixedSeed(int_hash((params.seed, "table_length"))):
+            return uniform(schema["minimum"], schema["maximum"])
+
     def _sample_geometry_spawn_state(self, params: TableDiningParameters) -> dict[str, Any]:
         if self._table_dimensions is not None:
             x, y, _z = self._table_dimensions
             length = x
             width = y
         else:
+            length = self._spawn_length(params)
             width = params.width
-            if params.dining_table_230 < 0.7:
-                length = uniform(1.4, 2.8)
-            else:
-                length = width * normal(1, 0.1)
         leg_style = choice(["straight", "single_stand", "square"], p=[0.5, 0.1, 0.4])
         if leg_style == "single_stand":
             leg_number = 2

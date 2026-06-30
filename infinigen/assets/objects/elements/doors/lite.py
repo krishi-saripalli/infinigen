@@ -96,20 +96,12 @@ def _sample_lite_layout(
 
 
 class LiteDoorParameters(AssetParameters):
-    x_min: Annotated[float, Field(ge=0.0, le=0.35, json_schema_extra={"editable": True})]
-    x_max: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})]
-    y_min: Annotated[float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": True})]
-    panel_margin: Annotated[
-        float, Field(ge=0.08, le=0.12, json_schema_extra={"editable": True})
-    ]
-    bevel_width: Annotated[
-        float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
-    ]
+    y_min: Annotated[float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": False})]
     x_subdivisions: Annotated[
-        int, Field(ge=1, le=3, json_schema_extra={"editable": True})
+        int, Field(ge=1, le=3, json_schema_extra={"editable": False})
     ]
     y_subdivisions: Annotated[
-        int, Field(ge=1, le=5, json_schema_extra={"editable": True})
+        int, Field(ge=1, le=5, json_schema_extra={"editable": False})
     ]
 
 
@@ -122,32 +114,30 @@ class LiteDoorFactory(PanelDoorFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> LiteDoorParameters:
-        x_min, x_max, y_min, x_subdivisions, y_subdivisions = _sample_lite_layout(
+        _, _, y_min, x_subdivisions, y_subdivisions = _sample_lite_layout(
             seed, self._constants
         )
-        with FixedSeed(seed):
-            return LiteDoorParameters(
-                seed=seed,
-                x_min=x_min,
-                x_max=x_max,
-                y_min=y_min,
-                panel_margin=log_uniform(0.08, 0.12),
-                bevel_width=uniform(0.005, 0.01),
-                x_subdivisions=x_subdivisions,
-                y_subdivisions=y_subdivisions,
-            )
+        return LiteDoorParameters(
+            seed=seed,
+            y_min=y_min,
+            x_subdivisions=x_subdivisions,
+            y_subdivisions=y_subdivisions,
+        )
 
     def apply_parameters(
         self, params: LiteDoorParameters, *, spawn_scope: bool = True
     ) -> None:
         with FixedSeed(params.seed):
             _panel_door_legacy_init(self, params.seed, self.coarse, self._constants)
-        self.x_min = params.x_min
-        self.x_max = params.x_max
+            x_min, x_max, _, _, _ = _sample_lite_layout(params.seed, self._constants)
+            panel_margin = log_uniform(0.08, 0.12)
+            bevel_width = uniform(0.005, 0.01)
+        self.x_min = x_min
+        self.x_max = x_max
         self.y_min = params.y_min
         self.y_max = 1.0
-        self.panel_margin = params.panel_margin
-        self.bevel_width = params.bevel_width
+        self.panel_margin = panel_margin
+        self.bevel_width = bevel_width
         self.x_subdivisions = params.x_subdivisions
         self.y_subdivisions = params.y_subdivisions
         self.has_glass = True

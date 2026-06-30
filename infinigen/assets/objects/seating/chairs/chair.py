@@ -81,12 +81,6 @@ class ChairParameters(AssetParameters):
         float,
         Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ]
-    arm_thickness: Annotated[float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": False})]
-    arm_height: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": False})]
-    arm_y: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})]
-    arm_z: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})]
-    back_vertical_cuts: Annotated[int, Field(ge=1, le=3, json_schema_extra={"editable": False})]
-    back_partial_scale: Annotated[float, Field(ge=1.0, le=1.4, json_schema_extra={"editable": False})]
     panel_surface_same_draw: Annotated[
         float,
         Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
@@ -161,6 +155,25 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
                 "edge_wear_fn": edge_wear_fn,
             }
 
+    def _sample_chair_tier1(self) -> None:
+        self._arm_thickness = uniform(0.04, 0.06)
+        self._arm_height = uniform(0.6, 1.0)
+        self._arm_y = uniform(0.8, 1.0)
+        self._arm_z = uniform(0.3, 0.6)
+        self._back_vertical_cuts = int(np.random.randint(1, 4))
+        self._back_partial_scale = uniform(1, 1.4)
+
+    def _apply_chair_tier1(self, params: ChairParameters) -> None:
+        if not hasattr(self, "_arm_thickness"):
+            with FixedSeed(params.seed):
+                self._sample_chair_tier1()
+        self.arm_thickness = self._arm_thickness
+        self.arm_height = self._arm_thickness * self._arm_height
+        self.arm_y = self._arm_y * self.size
+        self.arm_z = self._arm_z * self.back_height
+        self.back_vertical_cuts = self._back_vertical_cuts
+        self.back_partial_scale = self._back_partial_scale
+
     def _sample_init_parameters(self, seed: int) -> ChairParameters:
         width = uniform(0.4, 0.5)
         size = uniform(0.38, 0.45)
@@ -169,7 +182,7 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         seat_back = uniform(0.7, 1.0) if uniform() < 0.75 else 1.0
         seat_mid = uniform(0.7, 0.8)
         seat_mid_x = uniform(seat_back + seat_mid * (1 - seat_back), 1)
-        arm_thickness = uniform(0.04, 0.06)
+        self._sample_chair_tier1()
         scratch_draw = uniform()
         edge_wear_draw = uniform()
         return ChairParameters(
@@ -194,12 +207,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
             leg_offset_bar_low=uniform(0.2, 0.4),
             leg_offset_bar_high=uniform(0.6, 0.8),
             has_arm_draw=uniform(),
-            arm_thickness=arm_thickness,
-            arm_height=uniform(0.6, 1.0),
-            arm_y=uniform(0.8, 1.0),
-            arm_z=uniform(0.3, 0.6),
-            back_vertical_cuts=int(np.random.randint(1, 4)),
-            back_partial_scale=uniform(1, 1.4),
             panel_surface_same_draw=uniform(),
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
@@ -254,7 +261,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.leg_thickness = params.leg_thickness
         self.limb_profile = params.limb_profile
         self.leg_height = params.leg_height
-        # NOTE: back_height does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
         with FixedSeed(params.seed):
             self.back_height = uniform(0.4, 0.5)
         self.is_leg_round = params.is_leg_round_draw < 0.5
@@ -267,19 +273,13 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.has_leg_y_bar = params.has_leg_y_bar_draw < 0.6
         self.leg_offset_bar = (params.leg_offset_bar_low, params.leg_offset_bar_high)
         self.has_arm = params.has_arm_draw < 0.7
-        self.arm_thickness = params.arm_thickness
-        self.arm_height = params.arm_thickness * params.arm_height
-        self.arm_y = params.arm_y * self.size
-        self.arm_z = params.arm_z * self.back_height
+        self._apply_chair_tier1(params)
         self.arm_mid = np.array(internals["arm_mid"])
         self.arm_profile = np.array(internals["arm_profile"])
-        # NOTE: back_thickness range (0.04-0.05) is too narrow to survive cube normalization; no within-pair strip diff, excluded from quartet sampling.
         with FixedSeed(params.seed):
             self.back_thickness = uniform(0.04, 0.05)
         self.back_type = internals["back_type"]
         self.back_profile = [(0.0, 1.0)]
-        self.back_vertical_cuts = params.back_vertical_cuts
-        self.back_partial_scale = params.back_partial_scale
         self.limb_surface = internals["limb_surface"]
         self.surface = internals["surface"]
         self.panel_surface = internals["panel_surface"]

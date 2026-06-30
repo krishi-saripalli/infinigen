@@ -68,7 +68,6 @@ class TVParameters(AssetParameters):
         float, Field(ge=2.0, le=5.0, json_schema_extra={"editable": True})
     ]
     leg_length: Annotated[float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": False})]
-    leg_length_y: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": False})]
     leg_width: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
     tv_164: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": False})] = (
         0.2
@@ -143,7 +142,6 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             has_depth_extrude_draw=0.0,
             depth_extrude_multiplier=uniform(2, 5),
             leg_length=uniform(0.1, 0.2),
-            leg_length_y=uniform(0.1, 0.15),
             leg_width=uniform(0.5, 0.8),
             tv_164=uniform(0.1, 0.3),
             tv_165=uniform(0.5, 0.7),
@@ -180,8 +178,7 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             self.bottom_margin = uniform(0.005, 0.03)
             self.leg_radius = uniform(0.008, 0.015)
             self.leg_bevel_width = uniform(0.01, 0.02)
-        # NOTE: leg_length effect varies by leg_style (two-legged vs single-legged); excluded from quartet sampling.
-        # NOTE: leg_width only consumed by add_two_legs when leg_style is two-legged; excluded from quartet sampling.
+            self.leg_length_y = uniform(0.1, 0.15)
         self.leg_width = params.leg_width
         self.aspect_ratio = self._aspect_ratio_by_preset[params.aspect_ratio_preset]
         self.width = params.width
@@ -195,8 +192,6 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             self.depth_extrude = self.depth * 1.5
         self.leg_type = params.leg_style
         self.leg_length = params.leg_length
-        # NOTE: leg_length_y only affects single-leg base width; MonitorFactory always uses single-legged style.
-        self.leg_length_y = params.leg_length_y
         self.surface = self._surface
         self.support_surface = self._support_surface
         self.screen_surface = self._screen_surface

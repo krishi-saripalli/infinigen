@@ -54,36 +54,12 @@ class SpoonParameters(AssetParameters):
             json_schema_extra={"editable": False, "kind": "draw_bool"},
         ),
     ]
-    x_anchor_head: Annotated[
-        float, Field(ge=0.07, le=0.25, json_schema_extra={"editable": False})
-    ] = 0.15
-    x_anchor_tail_mult: Annotated[
-        float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": False})
-    ] = 1.3
-    y_anchor_0_mult: Annotated[
-        float, Field(ge=0.1, le=0.8, json_schema_extra={"editable": False})
-    ] = 0.45
-    y_anchor_5: Annotated[
-        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": False})
-    ] = 0.035
-    z_anchor_mid: Annotated[
-        float, Field(ge=-0.02, le=0.04, json_schema_extra={"editable": False})
-    ] = 0.01
 
 
 class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
     parameters_model: ClassVar[type[AssetParameters]] = SpoonParameters
     x_end = 0.15
     is_fragile = True
-
-    def _sample_spawn_anchor_updates(self) -> dict[str, float]:
-        return {
-            "x_anchor_head": log_uniform(0.07, 0.25),
-            "x_anchor_tail_mult": log_uniform(1.2, 1.4),
-            "y_anchor_0_mult": log_uniform(0.1, 0.8),
-            "y_anchor_5": log_uniform(0.02, 0.05),
-            "z_anchor_mid": uniform(-0.02, 0.04),
-        }
 
     def __init__(self, factory_seed, coarse=False):
         AssetFactory.__init__(self, factory_seed, coarse)
@@ -101,13 +77,7 @@ class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
             has_guard=True,
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
-            **self._sample_spawn_anchor_updates(),
         )
-
-    def _sample_spawn_parameters(
-        self, params: SpoonParameters, seed: int, i: int
-    ) -> SpoonParameters:
-        return params.model_copy(update=self._sample_spawn_anchor_updates())
 
     def apply_parameters(
         self, params: SpoonParameters, *, spawn_scope: bool = True
@@ -116,11 +86,16 @@ class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
             self.scale = log_uniform(0.15, 0.25)
             base = sample_tableware_base(params.seed)
             self._lower_thresh = base["lower_thresh"]
+            self._x_anchor_head = log_uniform(0.07, 0.25)
+            self._x_anchor_tail_mult = log_uniform(1.2, 1.4)
+            self._y_anchor_0_mult = log_uniform(0.1, 0.8)
             self._y_anchor_1_mult = log_uniform(1.0, 1.2)
             self._y_anchor_2_mult = log_uniform(0.6, 1.0)
             self._y_anchor_3_mult = log_uniform(0.2, 0.4)
             self._y_anchor_4 = log_uniform(0.01, 0.02)
+            self._y_anchor_5 = log_uniform(0.02, 0.05)
             self._y_anchor_6 = log_uniform(0.01, 0.02)
+            self._z_anchor_mid = uniform(-0.02, 0.04)
             self._z_anchor_tail = uniform(-0.02, 0.0)
         apply_tableware_from_draws(
             self,
@@ -141,11 +116,6 @@ class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
         with FixedSeed(params.seed):
             self.guard_type = "round" if uniform(0, 1) < 0.6 else "double"
         self.guard_depth = params.guard_depth_mult * params.thickness
-        self._x_anchor_head = params.x_anchor_head
-        self._x_anchor_tail_mult = params.x_anchor_tail_mult
-        self._y_anchor_0_mult = params.y_anchor_0_mult
-        self._y_anchor_5 = params.y_anchor_5
-        self._z_anchor_mid = params.z_anchor_mid
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

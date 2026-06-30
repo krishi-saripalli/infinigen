@@ -35,17 +35,37 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 class BathroomSinkParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})]
-    size_ratio: Annotated[float, Field(ge=0.55, le=0.8, json_schema_extra={"editable": True})]
-    depth_ratio: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
+    size_ratio: Annotated[float, Field(ge=0.55, le=0.8, json_schema_extra={"editable": False})]
+    depth_ratio: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})]
     has_curve: Annotated[
-        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = False
     has_legs: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = False
     is_stand_circular: Annotated[
-        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = False
+    sink_types: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["undermount", "drop-in", "vessel"],
+            }
+        ),
+    ] = "undermount"
+    bathtub_type: Annotated[
+        str,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": ["alcove", "freestanding"],
+            }
+        ),
+    ] = "alcove"
 
 
 def _init_bathroom_sink_state(
@@ -89,7 +109,9 @@ def _init_bathroom_sink_state(
         inst.levels = 5
         inst.side_levels = 2
         inst.is_hole_centered = True
-        inst.sink_types = np.random.choice(["undermount", "drop-in", "vessel"])
+        inst.sink_types = params.sink_types
+        inst.bathtub_type = params.bathtub_type
+        inst.has_extrude = True
         inst.has_stand = False
         match inst.sink_types:
             case "undermount":
@@ -99,7 +121,6 @@ def _init_bathroom_sink_state(
                 inst.bathtub_type = "alcove"
                 inst.has_extrude = True
             case _:
-                inst.bathtub_type = np.random.choice(["alcove", "freestanding"])
                 inst.has_extrude = uniform() < 0.7
                 inst.has_stand = True
         inst.tap_factory = TapFactory(inst.factory_seed)
@@ -135,6 +156,16 @@ class BathroomSinkFactory(BathtubFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BathroomSinkParameters:
+        with FixedSeed(seed):
+            sink_types = str(
+                np.random.choice(["undermount", "drop-in", "vessel"])
+            )
+            if sink_types == "undermount":
+                bathtub_type = "freestanding"
+            elif sink_types == "drop-in":
+                bathtub_type = "alcove"
+            else:
+                bathtub_type = str(np.random.choice(["alcove", "freestanding"]))
         return BathroomSinkParameters(
             seed=seed,
             width=uniform(0.6, 0.9),
@@ -143,6 +174,8 @@ class BathroomSinkFactory(BathtubFactory):
             has_curve=bool(uniform() < 0.5),
             has_legs=bool(uniform() < 0.5),
             is_stand_circular=bool(uniform() < 0.5),
+            sink_types=sink_types,
+            bathtub_type=bathtub_type,
         )
 
     def apply_parameters(
@@ -152,6 +185,8 @@ class BathroomSinkFactory(BathtubFactory):
         self.has_curve = params.has_curve
         self.has_legs = params.has_legs
         self.is_stand_circular = params.is_stand_circular
+        self.sink_types = params.sink_types
+        self.bathtub_type = params.bathtub_type
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:
@@ -279,4 +314,5 @@ class StandingSinkFactory(BathroomSinkFactory):
         self.has_curve = params.has_curve
         self.has_legs = params.has_legs
         self.is_stand_circular = params.is_stand_circular
+        self.sink_types = params.sink_types
         self._use_fixed_spawn_draws = spawn_scope

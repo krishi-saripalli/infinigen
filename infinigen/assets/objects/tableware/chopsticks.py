@@ -33,8 +33,6 @@ class ChopsticksParameters(AssetParameters):
     has_guard: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
-    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
-    scale: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
     scratch_draw: Annotated[
         float,
         Field(
@@ -53,28 +51,28 @@ class ChopsticksParameters(AssetParameters):
         ),
     ]
     parallel_style: Annotated[
-        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = True
     is_parallel: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
     parallel_distance: Annotated[
-        float, Field(ge=0.01, le=0.04, json_schema_extra={"editable": True})
+        float, Field(ge=0.01, le=0.04, json_schema_extra={"editable": False})
     ] = 0.01
     parallel_rot_a: Annotated[
-        float, Field(ge=0.0, le=0.392699, json_schema_extra={"editable": True})
+        float, Field(ge=0.0, le=0.392699, json_schema_extra={"editable": False})
     ] = 0.0
     parallel_rot_b: Annotated[
-        float, Field(ge=0.0, le=0.392699, json_schema_extra={"editable": True})
+        float, Field(ge=0.0, le=0.392699, json_schema_extra={"editable": False})
     ] = 0.0
     crossed_loc_x: Annotated[
-        float, Field(ge=-0.1, le=0.2, json_schema_extra={"editable": True})
+        float, Field(ge=-0.1, le=0.2, json_schema_extra={"editable": False})
     ] = 0.0
     crossed_loc_y: Annotated[
-        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": True})
+        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
     ] = 0.0
     crossed_rot: Annotated[
-        float, Field(ge=0.392699, le=0.785398, json_schema_extra={"editable": True})
+        float, Field(ge=0.392699, le=0.785398, json_schema_extra={"editable": False})
     ] = 0.392699
 
 
@@ -127,8 +125,6 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
             y_shrink=log_uniform(0.2, 0.8),
             is_square=bool(uniform(0, 1) < 0.5),
             has_guard=bool(uniform(0, 1) < 0.4),
-            lower_thresh=base["lower_thresh"],
-            scale=log_uniform(0.2, 0.4),
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
             **layout,
@@ -156,11 +152,15 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
     def apply_parameters(
         self, params: ChopsticksParameters, *, spawn_scope: bool = True
     ) -> None:
+        with FixedSeed(params.seed):
+            base = sample_tableware_base(params.seed)
+            self._lower_thresh = base["lower_thresh"]
+            self.scale = log_uniform(0.2, 0.4)
         apply_tableware_from_draws(
             self,
             seed=params.seed,
-            lower_thresh=params.lower_thresh,
-            scale=params.scale,
+            lower_thresh=self._lower_thresh,
+            scale=self.scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,
             has_guard=params.has_guard,

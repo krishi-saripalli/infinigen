@@ -32,15 +32,7 @@ from infinigen.core.util.random import weighted_sample
 
 
 class BeverageFridgeParameters(AssetParameters):
-    Depth: Annotated[float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": True})]
-    Width: Annotated[float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": True})]
-    Height: Annotated[float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": True})]
-    DoorThickness: Annotated[
-        float, Field(ge=0.035, le=0.13, json_schema_extra={"editable": True})
-    ]
-    RackRadius: Annotated[float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})]
-    RackHAmount: Annotated[int, Field(ge=2, le=4, json_schema_extra={"editable": True})]
-    RackDAmount: Annotated[int, Field(ge=4, le=6, json_schema_extra={"editable": True})]
+    pass
 
 
 @gin.configurable
@@ -92,26 +84,22 @@ class BeverageFridgeFactory(ParameterizedAssetFactory, AssetFactory):
         return self._sample_materials()
 
     def _sample_init_parameters(self, seed: int) -> BeverageFridgeParameters:
-        geometry = self.sample_geometry_parameters()
-        return BeverageFridgeParameters(
-            seed=seed,
-            Depth=geometry["Depth"],
-            Width=geometry["Width"],
-            Height=geometry["Height"],
-            DoorThickness=geometry["DoorThickness"],
-            RackRadius=min(0.02, geometry["RackRadius"]),
-            RackHAmount=geometry["RackHAmount"],
-            RackDAmount=geometry["RackDAmount"],
-        )
+        return BeverageFridgeParameters(seed=seed)
 
     def _resolve_mesh_params(self, params: BeverageFridgeParameters) -> None:
         with FixedSeed(params.seed):
-            fixed = self.sample_geometry_parameters()
+            geometry = self.sample_geometry_parameters()
             materials, scratch, edge_wear = self._sample_materials()
         self.params = {
-            **params.model_dump(exclude={"seed"}),
-            "DoorRotation": fixed["DoorRotation"],
-            "BrandName": fixed["BrandName"],
+            "Depth": geometry["Depth"],
+            "Width": geometry["Width"],
+            "Height": geometry["Height"],
+            "DoorThickness": geometry["DoorThickness"],
+            "RackRadius": min(0.02, geometry["RackRadius"]),
+            "RackHAmount": geometry["RackHAmount"],
+            "RackDAmount": geometry["RackDAmount"],
+            "DoorRotation": geometry["DoorRotation"],
+            "BrandName": geometry["BrandName"],
             **materials,
         }
         self.scratch = scratch

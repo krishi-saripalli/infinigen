@@ -38,7 +38,7 @@ from infinigen.core.placement.parameters import (
 )
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
-from infinigen.core.util.math import FixedSeed, clip_gaussian
+from infinigen.core.util.math import FixedSeed, clip_gaussian, int_hash
 from infinigen.core.util.random import weighted_sample
 
 
@@ -101,104 +101,112 @@ def fish_fin_cloth_sim_params():
 
 
 def fish_genome(p: FishParameters | None = None):
+    seed = p.seed if p is not None else 0
     temp_dict = defaultdict(
         lambda: 0.1, {"body_fish_eel": 0.01, "body_fish_puffer": 0.001}
     )
-    body_var = p.body_var if p is not None else U(0.3, 1)
-    body = genome.part(
-        parts.generic_nurbs.NurbsBody(
-            prefix="body_fish",
-            tags=["body"],
-            var=body_var,
-            temperature=temp_dict,
-            shoulder_ik_ts=[0.0, 0.3, 0.6, 1.0],
-            n_bones=15,
-            rig_reverse_skeleton=True,
+    with FixedSeed(int_hash((seed, "body"))):
+        body_var = p.body_var if p is not None else U(0.3, 1)
+        body = genome.part(
+            parts.generic_nurbs.NurbsBody(
+                prefix="body_fish",
+                tags=["body"],
+                var=body_var,
+                temperature=temp_dict,
+                shoulder_ik_ts=[0.0, 0.3, 0.6, 1.0],
+                n_bones=15,
+                rig_reverse_skeleton=True,
+            )
         )
-    )
 
-    has_dorsal_fin = p.has_dorsal_fin if p is not None else U() < 0.9
-    if has_dorsal_fin:
-        n_dorsal = 1
-        coord = (U(0.3, 0.45), 1, 0.7)
-        for i in range(n_dorsal):
-            dorsal_fin = parts.ridged_fin.FishFin(
-                fin_params((U(0.4, 0.6), 0.5, 0.2), dorsal=True), rig=False
-            )
-            genome.attach(
-                genome.part(dorsal_fin),
-                body,
-                coord=coord,
-                joint=Joint(rest=(0, -100, 0)),
-            )
+    with FixedSeed(int_hash((seed, "dorsal"))):
+        has_dorsal_fin = p.has_dorsal_fin if p is not None else U() < 0.9
+        if has_dorsal_fin:
+            n_dorsal = 1
+            coord = (U(0.3, 0.45), 1, 0.7)
+            for i in range(n_dorsal):
+                dorsal_fin = parts.ridged_fin.FishFin(
+                    fin_params((U(0.4, 0.6), 0.5, 0.2), dorsal=True), rig=False
+                )
+                genome.attach(
+                    genome.part(dorsal_fin),
+                    body,
+                    coord=coord,
+                    joint=Joint(rest=(0, -100, 0)),
+                )
 
     def rot(r):
         return np.array((20, r, -205)) + N(0, 7, 3)
 
-    has_pectoral_fins = p.has_pectoral_fins if p is not None else U() < 0.8
-    if has_pectoral_fins:
-        pectoral_fin = parts.ridged_fin.FishFin(fin_params((0.1, 0.5, 0.3)))
-        coord = (U(0.65, 0.8), U(55, 65) / 180, 0.9)
-        for side in [-1, 1]:
-            genome.attach(
-                genome.part(pectoral_fin),
-                body,
-                coord=coord,
-                joint=Joint(rest=rot(-13)),
-                side=side,
-            )
+    with FixedSeed(int_hash((seed, "pectoral"))):
+        has_pectoral_fins = p.has_pectoral_fins if p is not None else U() < 0.8
+        if has_pectoral_fins:
+            pectoral_fin = parts.ridged_fin.FishFin(fin_params((0.1, 0.5, 0.3)))
+            coord = (U(0.65, 0.8), U(55, 65) / 180, 0.9)
+            for side in [-1, 1]:
+                genome.attach(
+                    genome.part(pectoral_fin),
+                    body,
+                    coord=coord,
+                    joint=Joint(rest=rot(-13)),
+                    side=side,
+                )
 
-    has_pelvic_fins = p.has_pelvic_fins if p is not None else U() < 0.8
-    if has_pelvic_fins:
-        pelvic_fin = parts.ridged_fin.FishFin(fin_params((0.08, 0.5, 0.25)))
-        coord = (U(0.5, 0.65), U(8, 15) / 180, 0.8)
-        for side in [-1, 1]:
-            genome.attach(
-                genome.part(pelvic_fin),
-                body,
-                coord=coord,
-                joint=Joint(rest=rot(28)),
-                side=side,
-            )
+    with FixedSeed(int_hash((seed, "pelvic"))):
+        has_pelvic_fins = p.has_pelvic_fins if p is not None else U() < 0.8
+        if has_pelvic_fins:
+            pelvic_fin = parts.ridged_fin.FishFin(fin_params((0.08, 0.5, 0.25)))
+            coord = (U(0.5, 0.65), U(8, 15) / 180, 0.8)
+            for side in [-1, 1]:
+                genome.attach(
+                    genome.part(pelvic_fin),
+                    body,
+                    coord=coord,
+                    joint=Joint(rest=rot(28)),
+                    side=side,
+                )
 
-    has_hind_fins = p.has_hind_fins if p is not None else U() < 0.8
-    if has_hind_fins:
-        hind_fin = parts.ridged_fin.FishFin(fin_params((0.1, 0.5, 0.3)))
-        coord = (U(0.2, 0.3), N(36, 5) / 180, 0.9)
-        for side in [-1, 1]:
-            genome.attach(
-                genome.part(hind_fin),
-                body,
-                coord=coord,
-                joint=Joint(rest=rot(28)),
-                side=side,
-            )
+    with FixedSeed(int_hash((seed, "hind"))):
+        has_hind_fins = p.has_hind_fins if p is not None else U() < 0.8
+        if has_hind_fins:
+            hind_fin = parts.ridged_fin.FishFin(fin_params((0.1, 0.5, 0.3)))
+            coord = (U(0.2, 0.3), N(36, 5) / 180, 0.9)
+            for side in [-1, 1]:
+                genome.attach(
+                    genome.part(hind_fin),
+                    body,
+                    coord=coord,
+                    joint=Joint(rest=rot(28)),
+                    side=side,
+                )
 
-    angle = p.tail_angle if p is not None else U(140, 170)
-    tail_fin_length = p.tail_fin_length if p is not None else 0.12
-    tail_fin = parts.ridged_fin.FishFin(
-        fin_params((tail_fin_length, 0.5, 0.35)), rig=False
-    )
-    for vdir in [-1, 1]:
-        genome.attach(
-            genome.part(tail_fin),
-            body,
-            coord=(0.05, 0, 0),
-            joint=Joint((0, -angle * vdir, 0)),
+    with FixedSeed(int_hash((seed, "tail"))):
+        angle = p.tail_angle if p is not None else U(140, 170)
+        tail_fin_length = p.tail_fin_length if p is not None else 0.12
+        tail_fin = parts.ridged_fin.FishFin(
+            fin_params((tail_fin_length, 0.5, 0.35)), rig=False
         )
+        for vdir in [-1, 1]:
+            genome.attach(
+                genome.part(tail_fin),
+                body,
+                coord=(0.05, 0, 0),
+                joint=Joint((0, -angle * vdir, 0)),
+            )
 
-    eye_radius = p.eye_radius if p is not None else N(0.036, 0.01)
-    eye_fac = parts.eye.MammalEye({"Eyelids": False, "Radius": eye_radius})
-    coord = (0.9, 0.6, 0.9)
-    for side in [-1, 1]:
-        genome.attach(
-            genome.part(eye_fac),
-            body,
-            coord=coord,
-            joint=Joint(rest=(0, 0, 0)),
-            side=side,
-            rotation_basis="normal",
-        )
+    with FixedSeed(int_hash((seed, "eyes"))):
+        eye_radius = p.eye_radius if p is not None else N(0.036, 0.01)
+        eye_fac = parts.eye.MammalEye({"Eyelids": False, "Radius": eye_radius})
+        coord = (0.9, 0.6, 0.9)
+        for side in [-1, 1]:
+            genome.attach(
+                genome.part(eye_fac),
+                body,
+                coord=coord,
+                joint=Joint(rest=(0, 0, 0)),
+                side=side,
+                rotation_basis="normal",
+            )
 
     if U() < 0:
         jaw = genome.part(

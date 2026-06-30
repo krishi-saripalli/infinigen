@@ -59,12 +59,6 @@ class BookParameters(AssetParameters):
     depth: Annotated[
         float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
     ] = 0.015
-    has_cover_offset: Annotated[
-        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
-    ] = True
-    cover_offset: Annotated[
-        float, Field(ge=0.002, le=0.008, json_schema_extra={"editable": True})
-    ] = 0.005
 
 
 class BookFactory(ParameterizedAssetFactory, AssetFactory):
@@ -102,13 +96,10 @@ class BookFactory(ParameterizedAssetFactory, AssetFactory):
         with FixedSeed(seed):
             return uniform() < 0.2
 
-    def _sample_spawn_field_updates(self) -> dict[str, bool | float]:
-        has_cover_offset = True
+    def _sample_spawn_field_updates(self) -> dict[str, float]:
         return {
             "width": log_uniform(0.08, 0.15),
             "depth": uniform(0.01, 0.02),
-            "has_cover_offset": has_cover_offset,
-            "cover_offset": log_uniform(0.002, 0.008),
         }
 
     def _sample_init_parameters(self, seed: int) -> BookParameters:
@@ -150,7 +141,8 @@ class BookFactory(ParameterizedAssetFactory, AssetFactory):
         if spawn_scope:
             self._width = params.width
             self._depth = params.depth
-            self.offset = params.cover_offset if params.has_cover_offset else 0.0
+            with FixedSeed(params.seed):
+                self.offset = log_uniform(0.002, 0.008)
         else:
             self.offset = 0.0
 

@@ -51,14 +51,6 @@ class CoralParameters(AssetParameters):
     base_hue: Annotated[
         float, Field(ge=-0.2, le=0.3, json_schema_extra={"editable": False})
     ]
-    has_bump_draw: Annotated[
-        float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
-    ]
-    tentacle_draw: Annotated[
-        float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
-    ]
 
 
 class CoralFactory(ParameterizedAssetFactory, AssetFactory):
@@ -100,18 +92,11 @@ class CoralFactory(ParameterizedAssetFactory, AssetFactory):
             factory_method = self._resolve_factory_method(self._init_factory_method)
             factory: BaseCoralFactory = factory_method(seed, self.coarse)
             base_hue = self.build_base_hue()
-            has_bump_draw = uniform()
-            tentacle_draw = uniform()
         self.factory = factory
         self.base_hue = base_hue
         self.material = surface.shaderfunc_to_material(self.shader_coral, base_hue)
         self._scale_factors = (1.0, 1.0, 1.0)
-        return CoralParameters(
-            seed=seed,
-            base_hue=base_hue,
-            has_bump_draw=has_bump_draw,
-            tentacle_draw=tentacle_draw,
-        )
+        return CoralParameters(seed=seed, base_hue=base_hue)
 
     def _sample_spawn_parameters(
         self, params: CoralParameters, seed: int, i: int
@@ -122,8 +107,9 @@ class CoralFactory(ParameterizedAssetFactory, AssetFactory):
         self, params: CoralParameters, *, spawn_scope: bool = True
     ) -> None:
         self._init_factory_state(params.seed, params.base_hue)
-        self._has_bump_draw = params.has_bump_draw
-        self._tentacle_draw = params.tentacle_draw
+        with FixedSeed(params.seed):
+            self._has_bump_draw = uniform()
+            self._tentacle_draw = uniform()
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             with FixedSeed(int_hash((params.seed, params.seed))):

@@ -32,15 +32,12 @@ from infinigen.core.util.random import log_uniform
 
 
 class PineconeParameters(AssetParameters):
-    angle: Annotated[float, Field(ge=0.739008, le=1.396263, json_schema_extra={"editable": True})]
-    count: Annotated[float, Field(ge=64.0, le=96.0, json_schema_extra={"editable": True})]
     stem_offset: Annotated[
         float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})
     ]
     scale_curve_mid: Annotated[
         float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})
     ]
-    z_scale: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
 
 
 class PineconeFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -61,31 +58,26 @@ class PineconeFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         )
 
     def _sample_init_parameters(self, seed: int) -> PineconeParameters:
-        z_scale = uniform(1.0, 1.2)
         self._sample_material(seed)
         scale_curve_mid = uniform(0.6, 1.0)
         return PineconeParameters(
             seed=seed,
-            angle=2 * np.pi / (np.random.randint(4, 8) + 0.5),
-            count=log_uniform(64, 96),
             stem_offset=uniform(0.2, 0.4),
             scale_curve_mid=scale_curve_mid,
-            z_scale=z_scale,
         )
 
     def apply_parameters(
         self, params: PineconeParameters, *, spawn_scope: bool = True
     ) -> None:
         self._sample_material(params.seed)
-        self.angle = params.angle
-        # NOTE: max_y_angle, leaf_prob, scale_curve_high do not elicit a clear visual change in exported geometry; sampled on self, excluded from quartet sampling.
         with FixedSeed(params.seed):
+            self.angle = 2 * np.pi / (np.random.randint(4, 8) + 0.5)
             self.max_y_angle = uniform(0.7, 0.8) * np.pi / 2
+            self.count = int(log_uniform(64, 96))
+            self.z_scale = uniform(1.0, 1.2)
             self.leaf_prob = uniform(0.9, 0.95)
             self.scale_curve_high = uniform(0.1, 0.2)
         self.min_y_angle = 0.0
-        self.count = int(params.count)
-        # NOTE: stem_offset sets stem length; scale on curve is gated by leaf_prob when instancing scales.
         self.stem_offset = params.stem_offset
         self.perturb = 0
         self.scale_curve = [
@@ -98,7 +90,6 @@ class PineconeFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         self.bend_angle = np.pi / 4
         self.twist_angle = np.pi / 6
         self.z_drag = 0.0
-        self.z_scale = params.z_scale
         self.align_factor = 0
         self.align_direction = (1, 0, 0)
         self._use_fixed_spawn_draws = spawn_scope

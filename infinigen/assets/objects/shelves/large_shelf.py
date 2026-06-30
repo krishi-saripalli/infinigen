@@ -28,6 +28,7 @@ from infinigen.core.placement.parameters import (
     AssetParameters,
     ParameterizedAssetFactory,
 )
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -928,9 +929,6 @@ class LargeShelfBaseFactory(AssetFactory):
 
 
 class LargeShelfParameters(AssetParameters):
-    dimension_depth: Annotated[
-        float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": False})
-    ]
     dimension_width: Annotated[
         float, Field(ge=0.3, le=2.0, json_schema_extra={"editable": True})
     ]
@@ -953,7 +951,6 @@ class LargeShelfFactory(ParameterizedAssetFactory, LargeShelfBaseFactory):
     def _sample_init_parameters(self, seed: int) -> LargeShelfParameters:
         return LargeShelfParameters(
             seed=seed,
-            dimension_depth=uniform(0.25, 0.35),
             dimension_width=uniform(0.3, 2.0),
             dimension_height=uniform(0.9, 2.0),
             has_bottom_board=bool(np.random.choice([True, False], p=[0.8, 0.2])),
@@ -962,8 +959,10 @@ class LargeShelfFactory(ParameterizedAssetFactory, LargeShelfBaseFactory):
     def apply_parameters(
         self, params: LargeShelfParameters, *, spawn_scope: bool = True
     ) -> None:
+        with FixedSeed(params.seed):
+            dimension_depth = uniform(0.25, 0.35)
         self.params = {}
-        self._dimension_depth = params.dimension_depth
+        self._dimension_depth = dimension_depth
         self._dimension_width = params.dimension_width
         self._dimension_height = params.dimension_height
         self._has_bottom_board = params.has_bottom_board

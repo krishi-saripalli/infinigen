@@ -45,9 +45,7 @@ from .snail import (
 
 
 class MolluskParameters(AssetParameters):
-    noise_scale: Annotated[
-        float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})
-    ] = 0.15
+    pass
 
 
 class MusselParameters(MolluskParameters):
@@ -108,18 +106,14 @@ class MolluskFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> MolluskParameters:
         self._sample_shader_state(seed)
-        return MolluskParameters(seed=seed, noise_scale=log_uniform(0.1, 0.2))
-
-    def _sample_spawn_parameters(
-        self, params: MolluskParameters, seed: int, i: int
-    ) -> MolluskParameters:
-        return params.model_copy(update={"noise_scale": log_uniform(0.1, 0.2)})
+        return MolluskParameters(seed=seed)
 
     def apply_parameters(
         self, params: MolluskParameters, *, spawn_scope: bool = True
     ) -> None:
         self._sample_shader_state(params.seed)
-        self._noise_scale = params.noise_scale
+        with FixedSeed(params.seed):
+            self._noise_scale = log_uniform(0.1, 0.2)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, face_size=0.01, **params):

@@ -25,10 +25,7 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class BlanketParameters(AssetParameters):
-    size: Annotated[float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})]
-    thickness: Annotated[
-        float, Field(ge=0.004, le=0.008, json_schema_extra={"editable": True})
-    ]
+    pass
 
 
 class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
@@ -39,27 +36,31 @@ class BlanketFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BlanketParameters:
-        size_ratio = log_uniform(0.4, 0.7)
+        with FixedSeed(seed):
+            self._size_ratio = log_uniform(0.4, 0.7)
         surface_gen_class = weighted_sample(material_assignments.blanket)
         surface_material_gen = surface_gen_class()
         surface_mat = surface_material_gen()
         if surface_mat == ArtFabric:
             surface_mat = surface_mat(seed)
         self.surface = surface_mat
+        self._thickness = log_uniform(0.004, 0.008)
         return self.parameters_model(
             seed=seed,
-            size=size_ratio,
-            thickness=log_uniform(0.004, 0.008),
         )
 
     def apply_parameters(
         self, params: BlanketParameters, *, spawn_scope: bool = True
     ) -> None:
-        # NOTE: width sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
             self.width = log_uniform(0.9, 1.2)
-        self.size = self.width * params.size
-        self.thickness = params.thickness
+            if not hasattr(self, "_size_ratio"):
+                self._size_ratio = log_uniform(0.4, 0.7)
+        self.size = self.width * self._size_ratio
+        if not hasattr(self, "_thickness"):
+            with FixedSeed(params.seed):
+                self._thickness = log_uniform(0.004, 0.008)
+        self.thickness = self._thickness
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:
@@ -102,7 +103,6 @@ class ComforterFactory(BlanketFactory):
         self, params: ComforterParameters, *, spawn_scope: bool = True
     ) -> None:
         super().apply_parameters(params, spawn_scope=spawn_scope)
-        # NOTE: thickness sampled on self from seed; excluded from quartet sampling.
         with FixedSeed(params.seed):
             self.thickness = log_uniform(0.004, 0.008)
 

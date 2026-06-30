@@ -410,8 +410,6 @@ class SimpleDeskParameters(AssetParameters):
     depth: Annotated[float, Field(ge=0.45, le=0.75, json_schema_extra={"editable": False})]
     width: Annotated[float, Field(ge=0.7, le=2.0, json_schema_extra={"editable": True})]
     height: Annotated[float, Field(ge=0.6, le=0.83, json_schema_extra={"editable": True})]
-    leg_radius: Annotated[float, Field(ge=0.01, le=0.025, json_schema_extra={"editable": True})]
-    leg_dist: Annotated[float, Field(ge=0.035, le=0.07, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": False})]
 
 
@@ -423,29 +421,34 @@ class SimpleDeskFactory(ParameterizedAssetFactory, SimpleDeskBaseFactory):
         self.params = params
         self.init_legacy_parameters()
 
+    def _sample_desk_tier1(self) -> None:
+        self._leg_radius = uniform(0.01, 0.025)
+        self._leg_dist = uniform(0.035, 0.07)
+
     def _sample_init_parameters(self, seed: int) -> SimpleDeskParameters:
+        self._sample_desk_tier1()
         return SimpleDeskParameters(
             seed=seed,
             depth=uniform(0.5, 0.75),
             width=uniform(0.8, 2.0),
             height=uniform(0.6, 0.8),
-            leg_radius=uniform(0.01, 0.025),
-            leg_dist=uniform(0.035, 0.07),
             thickness=uniform(0.01, 0.03),
         )
 
     def apply_parameters(
         self, params: SimpleDeskParameters, *, spawn_scope: bool = True
     ) -> None:
+        if not hasattr(self, "_leg_radius"):
+            with FixedSeed(params.seed):
+                self._sample_desk_tier1()
         with FixedSeed(params.seed):
             SimpleDeskBaseFactory.__init__(self, params.seed, {}, self.coarse)
-            # NOTE: depth and thickness feed desk top geometry; effect depends on sampled leg/support layout.
             self.params = {
                 "depth": params.depth,
                 "width": params.width,
                 "height": params.height,
-                "leg_radius": params.leg_radius,
-                "leg_dist": params.leg_dist,
+                "leg_radius": self._leg_radius,
+                "leg_dist": self._leg_dist,
                 "thickness": params.thickness,
             }
         self._use_fixed_spawn_draws = spawn_scope
@@ -467,7 +470,7 @@ class SidetableDeskParameters(AssetParameters):
         float, Field(ge=0.44, le=0.66, json_schema_extra={"editable": False})
     ]
     height_ratio: Annotated[
-        float, Field(ge=0.9, le=1.1, json_schema_extra={"editable": True})
+        float, Field(ge=0.9, le=1.1, json_schema_extra={"editable": False})
     ]
 
 

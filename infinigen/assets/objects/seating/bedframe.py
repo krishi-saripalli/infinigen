@@ -41,18 +41,9 @@ class BedFrameParameters(ChairParameters):
         float, Field(ge=0.08, le=0.12, json_schema_extra={"editable": True})
     ]
     leg_height: Annotated[float, Field(ge=0.2, le=0.6, json_schema_extra={"editable": True})]
-    back_height: Annotated[float, Field(ge=0.5, le=1.3, json_schema_extra={"editable": True})]
     has_arm_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
     ] = 1.0
-    arm_thickness: Annotated[
-        float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": False})
-    ]
-    arm_height: Annotated[
-        float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": False})
-    ]
-    arm_y: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})]
-    arm_z: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})]
     has_all_legs_draw: Annotated[
         float,
         Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
@@ -115,8 +106,6 @@ class BedFrameFactory(ChairFactory):
         size = uniform(2, 2.4)
         thickness = uniform(0.05, 0.12)
         bevel_width = thickness * (0.1 if uniform() < 0.4 else 0.5)
-        back_height = uniform(0.5, 1.3)
-        arm_thickness = uniform(0.04, 0.06)
         scratch_draw = uniform()
         edge_wear_draw = uniform()
         panel_surface_same_draw = uniform()
@@ -136,20 +125,12 @@ class BedFrameFactory(ChairFactory):
             leg_thickness=uniform(0.08, 0.12),
             limb_profile=uniform(1.5, 2.5),
             leg_height=uniform(0.2, 0.6),
-            back_height=back_height,
             is_leg_round_draw=uniform(),
             has_leg_x_bar_draw=uniform(),
             has_leg_y_bar_draw=uniform(),
             leg_offset_bar_low=uniform(0.2, 0.4),
             leg_offset_bar_high=uniform(0.6, 0.8),
             has_arm_draw=1.0,
-            arm_thickness=arm_thickness,
-            arm_height=uniform(0.6, 1.0),
-            arm_y=uniform(0.8, 1.0),
-            arm_z=uniform(0.3, 0.6),
-            back_thickness=uniform(0.04, 0.05),
-            back_vertical_cuts=int(np.random.randint(1, 4)),
-            back_partial_scale=uniform(1, 1.4),
             panel_surface_same_draw=panel_surface_same_draw,
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
@@ -188,6 +169,8 @@ class BedFrameFactory(ChairFactory):
                 else weighted_sample(material_assignments.furniture_hard_surface)()()
             )
         super().apply_parameters(params, spawn_scope=spawn_scope)
+        with FixedSeed(params.seed):
+            self.back_height = uniform(0.5, 1.3)
         self.back_type = internals["back_type"]
         self.surface = surface_mat
         self.panel_surface = panel_surface

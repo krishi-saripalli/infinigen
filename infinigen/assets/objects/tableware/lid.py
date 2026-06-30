@@ -27,7 +27,6 @@ from infinigen.core.util.random import weighted_sample
 
 
 class LidParameters(AssetParameters):
-    x_length: Annotated[float, Field(ge=0.08, le=0.15, json_schema_extra={"editable": False})]
     z_height_ratio: Annotated[
         float, Field(ge=0.0, le=0.5, json_schema_extra={"editable": True})
     ]
@@ -50,10 +49,6 @@ class LidParameters(AssetParameters):
             json_schema_extra={"editable": False, "kind": "draw_bool"},
         ),
     ]
-    # NOTE: only affects handle path when handle_type=handle (sampled at init).
-    handle_height_ratio: Annotated[
-        float, Field(ge=0.1, le=0.25, json_schema_extra={"editable": False})
-    ] = 0.15
     handle_type: Annotated[
         str,
         Field(
@@ -64,12 +59,6 @@ class LidParameters(AssetParameters):
             }
         ),
     ] = "handle"
-    z_anchor_frac: Annotated[
-        float, Field(ge=0.7, le=0.8, json_schema_extra={"editable": True})
-    ] = 0.75
-    handle_subsurf_level: Annotated[
-        int, Field(ge=0, le=2, json_schema_extra={"editable": True})
-    ] = 1
 
 class LidFactory(ParameterizedAssetFactory, AssetFactory):
     parameters_model: ClassVar[type[AssetParameters]] = LidParameters
@@ -93,31 +82,16 @@ class LidFactory(ParameterizedAssetFactory, AssetFactory):
             self.handle_surface_material_gen = handle_surface_gen_class()
 
     def _sample_init_parameters(self, seed: int) -> LidParameters:
-        x_length = uniform(0.08, 0.15)
         is_glass = True
         self._sample_materials(seed, True)
         handle_type = "handle"
         return LidParameters(
             seed=seed,
-            x_length=x_length,
             z_height_ratio=uniform(0, 0.5),
             is_glass=is_glass,
             scratch_draw=uniform(),
             edge_wear_draw=uniform(),
             handle_type=handle_type,
-            handle_height_ratio=uniform(0.1, 0.15),
-            z_anchor_frac=uniform(0.7, 0.8),
-            handle_subsurf_level=int(np.random.randint(0, 3)),
-        )
-
-    def _sample_spawn_parameters(
-        self, params: LidParameters, seed: int, i: int
-    ) -> LidParameters:
-        return params.model_copy(
-            update={
-                "z_anchor_frac": uniform(0.7, 0.8),
-                "handle_subsurf_level": int(np.random.randint(0, 3)),
-            }
         )
 
     def apply_parameters(
@@ -130,24 +104,22 @@ class LidFactory(ParameterizedAssetFactory, AssetFactory):
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
         self.scratch = None if params.scratch_draw > scratch_prob else scratch_fn()
         self.edge_wear = None if params.edge_wear_draw > edge_wear_prob else edge_wear_fn()
-        self.x_length = params.x_length
-        self.z_height = params.x_length * params.z_height_ratio
-        # NOTE: thickness sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
+            self.x_length = uniform(0.08, 0.15)
             self.thickness = uniform(0.003, 0.005)
-        self.is_glass = is_glass
-        self.hardware_type = None
-        # NOTE: rim_height_mult, handle_radius_ratio, and handle_width_ratio do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
-        with FixedSeed(params.seed):
             self.rim_height_mult = uniform(1, 2)
             self.handle_radius_ratio = uniform(0.15, 0.25)
             self.handle_width_ratio = uniform(0.25, 0.3)
+            handle_height_ratio = uniform(0.1, 0.15)
+            self._z_anchor_frac = uniform(0.7, 0.8)
+            self._handle_subsurf_level = int(np.random.randint(0, 3))
+        self.z_height = self.x_length * params.z_height_ratio
+        self.is_glass = is_glass
+        self.hardware_type = None
         self.rim_height = self.rim_height_mult * self.thickness
-        self.handle_height = params.x_length * params.handle_height_ratio
-        self.handle_radius = params.x_length * self.handle_radius_ratio
-        self.handle_width = params.x_length * self.handle_width_ratio
-        self._z_anchor_frac = params.z_anchor_frac
-        self._handle_subsurf_level = params.handle_subsurf_level
+        self.handle_height = self.x_length * handle_height_ratio
+        self.handle_radius = self.x_length * self.handle_radius_ratio
+        self.handle_width = self.x_length * self.handle_width_ratio
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

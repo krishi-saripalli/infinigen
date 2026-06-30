@@ -21,11 +21,11 @@ from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import weighted_sample
 
 
 class RangeHoodParameters(AssetParameters):
-    Height_1: Annotated[float, Field(ge=0.05, le=0.07, json_schema_extra={"editable": True})]
     Height_2: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": True})]
     Scale_2: Annotated[float, Field(ge=0.25, le=0.4, json_schema_extra={"editable": True})]
 
@@ -75,7 +75,6 @@ class RangeHoodFactory(ParameterizedAssetFactory, AssetFactory):
         geometry = self.sample_geometry_parameters(self.dimensions)
         return RangeHoodParameters(
             seed=seed,
-            Height_1=geometry["Height_1"],
             Height_2=geometry["Height_2"],
             Scale_2=geometry["Scale_2"],
         )
@@ -85,9 +84,11 @@ class RangeHoodFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         geometry = self.sample_geometry_parameters(self.dimensions)
         surface_material_gen, scratch, edge_wear = self._sample_materials()
+        with FixedSeed(params.seed):
+            height_1 = U(0.05, 0.07)
         self.params = {
             **geometry,
-            "Height_1": params.Height_1,
+            "Height_1": height_1,
             "Height_2": params.Height_2,
             "Scale_2": params.Scale_2,
         }

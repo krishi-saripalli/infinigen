@@ -24,6 +24,7 @@ from infinigen.core.placement.parameters import (
 )
 from infinigen.core.util import blender as butil
 from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -1420,7 +1421,6 @@ class PalmTreeParameters(AssetParameters):
     truncated_stem_chance: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
     ] = 0.4
-    leaf_seed: Annotated[int, Field(ge=0, le=1000)] = 0
 
 
 class PalmTreeFactory(ParameterizedAssetFactory, AssetFactory):
@@ -1444,13 +1444,14 @@ class PalmTreeFactory(ParameterizedAssetFactory, AssetFactory):
                 "stem_y_curvature": uniform(-0.1, 0.1),
                 "plant_stem_length": uniform(0.5, 1.2),
                 "truncated_stem_chance": 0.4,
-                "leaf_seed": int(randint(0, 1000, size=(1,))[0]),
             }
         )
 
     def apply_parameters(
         self, params: PalmTreeParameters, *, spawn_scope: bool = True
     ) -> None:
+        with FixedSeed(params.seed):
+            leaf_seed = int(randint(0, 1000, size=(1,))[0])
         self.geom_kwargs = {
             "trunk_radius": params.trunk_radius,
             "truncated_stem_chance": params.truncated_stem_chance,
@@ -1462,7 +1463,7 @@ class PalmTreeFactory(ParameterizedAssetFactory, AssetFactory):
             "stem_y_curvature": params.stem_y_curvature,
             "plant_stem_length": params.plant_stem_length,
         }
-        self.leaf_seed = params.leaf_seed
+        self.leaf_seed = leaf_seed
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, params={}, **kwargs):

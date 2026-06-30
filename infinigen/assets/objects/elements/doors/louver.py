@@ -51,9 +51,6 @@ class LouverDoorParameters(AssetParameters):
     y_subdivisions: Annotated[
         int, Field(ge=1, le=5, json_schema_extra={"editable": False})
     ]
-    panel_margin: Annotated[
-        float, Field(ge=0.08, le=0.12, json_schema_extra={"editable": False})
-    ]
 
 
 class LouverDoorFactory(PanelDoorFactory):
@@ -71,7 +68,6 @@ class LouverDoorFactory(PanelDoorFactory):
                 has_panel=True,
                 has_upper_panel=True,
                 y_subdivisions=int(np.clip(np.random.binomial(5, 0.4), 1, None)),
-                panel_margin=log_uniform(0.08, 0.12),
             )
 
     def apply_parameters(
@@ -79,16 +75,15 @@ class LouverDoorFactory(PanelDoorFactory):
     ) -> None:
         with FixedSeed(params.seed):
             _louver_legacy_init(self, params.seed, self.coarse, self._constants)
-        self.has_panel = params.has_panel
-        self.has_upper_panel = params.has_upper_panel
-        # NOTE: louver_width/margin/size/angle do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
-        with FixedSeed(params.seed):
+            panel_margin = log_uniform(0.08, 0.12)
             self.louver_width = uniform(0.002, 0.004)
             self.louver_margin = uniform(0.02, 0.03)
             self.louver_size = log_uniform(0.05, 0.1)
             self.louver_angle = uniform(np.pi / 4.5, np.pi / 3.5)
+        self.has_panel = params.has_panel
+        self.has_upper_panel = params.has_upper_panel
         self.y_subdivisions = params.y_subdivisions
-        self.panel_margin = params.panel_margin
+        self.panel_margin = panel_margin
         self.x_subdivisions = 1
         self._use_fixed_spawn_draws = spawn_scope
 

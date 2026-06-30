@@ -44,29 +44,11 @@ from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform, weighted_sample
 
 
-_PLANT_POT_UNUSED_FIELDS = (
-    "bar_radius",
-    "grid_offset",
-    "guard_depth_mult",
-    "has_handle_hole",
-    "hole_location_frac",
-    "hole_scale",
-    "lower_thresh",
-    "n_vertices",
-    "pot_guard_depth_mult",
-    "s_handle",
-    "x_guard_extra",
-    "x_handle",
-    "z_handle_frac",
-    "z_handle_mid_frac",
-)
-
-
 class PlantPotParameters(PotParameters):
     pass
 
 
-for _field in (*_PLANT_POT_UNUSED_FIELDS, "scale", "r_mid", "thickness"):
+for _field in ("scale", "r_mid", "thickness"):
     PlantPotParameters.model_fields.pop(_field, None)
 PlantPotParameters.model_rebuild(force=True)
 
@@ -88,7 +70,6 @@ class PlantPotFactory(PotFactory):
             depth=log_uniform(0.3, 0.8),
             pot_depth=log_uniform(0.6, 2.0),
             has_bar=False,
-            has_guard=False,
             bar_scale_x=np.clip(log_uniform(0.6, 1.0) * log_uniform(0.6, 1.5), 0.6, 1.0),
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],

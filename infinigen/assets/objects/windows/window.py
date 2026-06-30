@@ -95,14 +95,6 @@ class WindowParameters(AssetParameters):
         float,
         Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ] = 0.0
-    shutter_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ] = 1.0
 
 
 class WindowFactory(ParameterizedAssetFactory, AssetFactory):
@@ -166,7 +158,7 @@ class WindowFactory(ParameterizedAssetFactory, AssetFactory):
         shutter = (
             self._window_shutter
             if self._window_shutter is not None
-            else params.shutter_draw < 0.2
+            else self._shutter_draw < 0.2
         )
         if curtain:
             open = False
@@ -246,7 +238,6 @@ class WindowFactory(ParameterizedAssetFactory, AssetFactory):
             frame_thickness_frac=U(0.05, 0.15),
             curtain_frame_depth=U(0.05, 0.1),
             curtain_draw=0.0,
-            shutter_draw=1.0,
         )
 
     def apply_parameters(
@@ -256,6 +247,8 @@ class WindowFactory(ParameterizedAssetFactory, AssetFactory):
             self._material_params = self._sample_materials()
         self.beveler = BevelSharp()
         self.open = self._window_open
+        with FixedSeed(params.seed):
+            self._shutter_draw = U()
         self.curtain = (
             self._window_curtain
             if self._window_curtain is not None
@@ -264,7 +257,7 @@ class WindowFactory(ParameterizedAssetFactory, AssetFactory):
         self.shutter = (
             self._window_shutter
             if self._window_shutter is not None
-            else params.shutter_draw < 0.2
+            else self._shutter_draw < 0.2
         )
         with FixedSeed(params.seed):
             # NOTE: frame_width_frac and glass_thickness do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.

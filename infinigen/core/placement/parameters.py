@@ -47,6 +47,14 @@ def _is_editable(field_info: Any) -> bool:
     return True
 
 
+def _thin(values: list[Any], n: int) -> list[Any]:
+    """Return at most n values evenly spaced across the list, keeping both ends."""
+    if n <= 0 or n >= len(values):
+        return values
+    idx = np.linspace(0, len(values) - 1, n).round().astype(int)
+    return [values[i] for i in dict.fromkeys(idx.tolist())]
+
+
 class AssetParameters(BaseModel):
     """Base Pydantic model for explicit, editable generator parameters."""
 
@@ -68,63 +76,41 @@ class AssetParameters(BaseModel):
             if name != "seed" and cls.is_editable(name)
         )
 
-    def sweep(
-        self, field: str, n_steps: int = 11
-    ) -> tuple[list[float], list[Any]]:
-        """Return (unit_values, native_values) for a uniform sweep of a field."""
+    def sweep(self, field: str, max_int_steps: int = 8) -> list[Any]:
+        """Candidate target values for an editable field, excluding the no-op.
+
+        float            -> the range boundary furthest from the current value
+        int              -> every valid int except current, thinned to max_int_steps
+        bool / draw_bool -> the opposite state
+        enum             -> every choice except the current one
+
+        Returns [] when the field has nothing meaningful to sweep.
+        """
         if field not in self.model_fields:
             raise KeyError(field)
         field_info = self.model_fields[field]
         kind = _field_kind(field_info)
-        if kind == "bool":
-            return [0.0, 1.0], [False, True]
-        if kind == "draw_bool":
-            return [0.0, 1.0], [0.0, 1.0]
-        if kind == "enum":
-            choices = _field_choices(field_info)
-            if len(choices) < 2:
-                raise ValueError(f"{field} enum needs >= 2 choices for sweep")
-            unit_values = np.linspace(0.0, 1.0, len(choices)).tolist()
-            return unit_values, list(choices)
-        bounds = _field_bounds(field_info)
-        if bounds is None:
-            raise ValueError(f"{field} has no numeric bounds for sweep")
-        low, high = bounds
         current = getattr(self, field)
-        unit_values = np.linspace(0.0, 1.0, n_steps).tolist()
-
+        if kind == "bool":
+            return [not current]
+        if kind == "draw_bool":
+            return [0.0 if float(current) >= 0.5 else 1.0]
+        if kind == "enum":
+            return [c for c in _field_choices(field_info) if c != current]
+        bounds = _field_bounds(field_info)
+        if bounds is None or bounds[0] == bounds[1]:
+            return []
+        low, high = bounds
         if isinstance(current, int):
-            native_values = [int(round(low + u * (high - low))) for u in unit_values]
-        else:
-            native_values = [low + u * (high - low) for u in unit_values]
-        return unit_values, native_values
+            values = [v for v in range(int(low), int(high) + 1) if v != current]
+            return _thin(values, max_int_steps)
+        return [high if (high - current) >= (current - low) else low]
 
-    def edit(self, field: str, unit_value: float) -> Self:
-        """Return a new instance with field set from a unit-space value in [0, 1]."""
+    def edit(self, field: str, value: Any) -> Self:
+        """Return a copy with ``field`` set to a native target from ``sweep``."""
         if field not in self.model_fields:
             raise KeyError(field)
-        field_info = self.model_fields[field]
-        kind = _field_kind(field_info)
-        if kind == "bool":
-            return self.model_copy(update={field: bool(unit_value >= 0.5)})
-        if kind == "draw_bool":
-            return self.model_copy(update={field: float(unit_value >= 0.5)})
-        if kind == "enum":
-            choices = _field_choices(field_info)
-            if len(choices) < 2:
-                raise ValueError(f"{field} enum needs >= 2 choices for edit")
-            idx = int(round(unit_value * (len(choices) - 1)))
-            idx = max(0, min(idx, len(choices) - 1))
-            return self.model_copy(update={field: choices[idx]})
-        bounds = _field_bounds(field_info)
-        if bounds is None:
-            raise ValueError(f"{field} has no numeric bounds for edit")
-        low, high = bounds
-        current = getattr(self, field)
-        new_value: float | int = low + unit_value * (high - low)
-        if isinstance(current, int):
-            new_value = int(round(new_value))
-        return self.model_copy(update={field: new_value})
+        return self.model_copy(update={field: value})
 
 
 class LegacyBridgeParameters(AssetParameters):
@@ -205,8 +191,11 @@ class ParameterizedAssetFactory:
         self, params: AssetParameters, fresh: AssetParameters
     ) -> AssetParameters:
         """Keep quartet-edited values when spawn resampling would overwrite them."""
-        editable = type(params).editable_field_names()
-        preserved = {name: getattr(params, name) for name in editable}
+        preserved = {
+            name: getattr(params, name)
+            for name in type(params).editable_field_names()
+            if name in type(params).model_fields
+        }
         return fresh.model_copy(update=preserved)
 
     def _apply_spawn_parameters(

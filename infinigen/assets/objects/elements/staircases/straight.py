@@ -64,7 +64,7 @@ class StraightStaircaseParameters(AssetParameters):
 
 class MirroredStaircaseParameters(StraightStaircaseParameters):
     mirror: Annotated[
-        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = False
 
 

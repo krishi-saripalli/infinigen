@@ -31,15 +31,6 @@ from infinigen.core.util.random import weighted_sample
 class JarParameters(AssetParameters):
     z_length: Annotated[float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": True})]
     x_length: Annotated[float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": True})]
-    thickness: Annotated[
-        float, Field(ge=0.002, le=0.004, json_schema_extra={"editable": True})
-    ]
-    x_cap_ratio: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})]
-    z_cap: Annotated[float, Field(ge=0.05, le=0.08, json_schema_extra={"editable": True})]
-    z_neck: Annotated[float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": True})]
-    cap_subsurf: Annotated[
-        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
-    ]
     scratch_draw: Annotated[
         float,
         Field(
@@ -56,9 +47,6 @@ class JarParameters(AssetParameters):
             json_schema_extra={"editable": False, "kind": "draw_bool"},
         ),
     ]
-    clear: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ]
     n_base: Annotated[
         int,
         Field(
@@ -69,12 +57,6 @@ class JarParameters(AssetParameters):
             }
         ),
     ] = 64
-    profile_shape_factor: Annotated[
-        float, Field(ge=0.0, le=0.1, json_schema_extra={"editable": True})
-    ] = 0.05
-    cap_z_ratio: Annotated[
-        float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})
-    ] = 0.65
 
 
 class JarFactory(ParameterizedAssetFactory, AssetFactory):
@@ -97,27 +79,9 @@ class JarFactory(ParameterizedAssetFactory, AssetFactory):
             seed=seed,
             z_length=uniform(0.15, 0.2),
             x_length=uniform(0.03, 0.06),
-            thickness=uniform(0.002, 0.004),
-            x_cap_ratio=uniform(0.6, 0.9),
-            z_cap=uniform(0.05, 0.08),
-            z_neck=uniform(0.15, 0.2),
-            cap_subsurf=bool(uniform() < 0.5),
             scratch_draw=scratch_draw,
             edge_wear_draw=edge_wear_draw,
-            clear=bool(uniform() < 0.5),
             n_base=int(np.random.choice([4, 6, 64])),
-            profile_shape_factor=uniform(0, 0.1),
-            cap_z_ratio=uniform(0.5, 0.8),
-        )
-
-    def _sample_spawn_parameters(
-        self, params: JarParameters, seed: int, i: int
-    ) -> JarParameters:
-        return params.model_copy(
-            update={
-                "profile_shape_factor": uniform(0, 0.1),
-                "cap_z_ratio": uniform(0.5, 0.8),
-            }
         )
 
     def apply_parameters(
@@ -126,15 +90,16 @@ class JarFactory(ParameterizedAssetFactory, AssetFactory):
         self.n_base = params.n_base
         self.z_length = params.z_length
         self.x_length = params.x_length
-        self.thickness = params.thickness
-        self.x_cap_ratio = params.x_cap_ratio
-        self.x_cap = params.x_cap_ratio * np.cos(np.pi / self.n_base)
-        self.z_cap = params.z_cap
-        self.z_neck = params.z_neck
-        self.cap_subsurf = params.cap_subsurf
-        self.clear = params.clear
-        self.profile_shape_factor = params.profile_shape_factor
-        self.cap_z_ratio = params.cap_z_ratio
+        with FixedSeed(params.seed):
+            self.thickness = uniform(0.002, 0.004)
+            x_cap_ratio = uniform(0.6, 0.9)
+            self.x_cap = x_cap_ratio * np.cos(np.pi / self.n_base)
+            self.z_cap = uniform(0.05, 0.08)
+            self.z_neck = uniform(0.15, 0.2)
+            self.cap_subsurf = bool(uniform() < 0.5)
+            self.clear = bool(uniform() < 0.5)
+            self.profile_shape_factor = uniform(0, 0.1)
+            self.cap_z_ratio = uniform(0.5, 0.8)
 
     def create_asset(self, **params) -> bpy.types.Object:
         obj = new_cylinder(vertices=self.n_base)

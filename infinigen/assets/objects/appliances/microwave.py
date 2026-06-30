@@ -32,7 +32,6 @@ class MicrowaveParameters(AssetParameters):
     DoorThickness: Annotated[
         float, Field(ge=0.02, le=0.04, json_schema_extra={"editable": True})
     ]
-    DoorMargin: Annotated[float, Field(ge=0.03, le=0.1, json_schema_extra={"editable": True})]
 
 
 class MicrowaveFactory(ParameterizedAssetFactory, AssetFactory):
@@ -88,8 +87,11 @@ class MicrowaveFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: MicrowaveParameters, *, spawn_scope: bool = True
     ) -> None:
+        with FixedSeed(params.seed):
+            door_margin = U(0.03, 0.1)
         self.params = {
             **params.model_dump(exclude={"seed"}),
+            "DoorMargin": door_margin,
             "BrandName": self.BrandName,
             "DoorRotation": self.DoorRotation,
             **self._mesh_materials,

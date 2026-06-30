@@ -158,7 +158,49 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
             self.edge_wear.apply(assets)
 
 
+class MirrorParameters(AssetParameters):
+    width: Annotated[float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": True})]
+    frame_bevel_segments: Annotated[
+        int,
+        Field(
+            json_schema_extra={
+                "editable": False,
+                "kind": "enum",
+                "choices": [0, 1, 4],
+            }
+        ),
+    ] = 1
+
+
 class MirrorFactory(WallArtFactory):
+    parameters_model: ClassVar[type[AssetParameters]] = MirrorParameters
+
+    def _sample_init_parameters(self, seed: int) -> MirrorParameters:
+        params = MirrorParameters(
+            seed=seed,
+            width=log_uniform(0.4, 2),
+            frame_bevel_segments=1,
+        )
+        self._apply_internal_state(params)
+        return params
+
+    def apply_parameters(
+        self, params: MirrorParameters, *, spawn_scope: bool = True
+    ) -> None:
+        with FixedSeed(params.seed):
+            height = log_uniform(0.4, 2)
+            thickness = uniform(0.02, 0.05)
+            depth = uniform(0.01, 0.02)
+            frame_bevel_width = uniform(depth / 4, depth / 2)
+        self.width = params.width
+        self.height = height
+        self.thickness = thickness
+        self.depth = depth
+        self.frame_bevel_width = frame_bevel_width
+        self._apply_internal_state(params)
+        self.frame_bevel_segments = params.frame_bevel_segments
+        self._use_fixed_spawn_draws = spawn_scope
+
     def _sample_materials(self, seed: int) -> dict[str, Any]:
         surface_gen_class = weighted_sample(material_assignments.mirrors)
         surface_material_gen = surface_gen_class()

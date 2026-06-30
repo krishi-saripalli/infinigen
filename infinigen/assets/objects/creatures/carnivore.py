@@ -29,7 +29,7 @@ from infinigen.core.placement.parameters import (
     ParameterizedAssetFactory,
 )
 from infinigen.core.util import blender as butil
-from infinigen.core.util.math import clip_gaussian
+from infinigen.core.util.math import FixedSeed, clip_gaussian
 from infinigen.core.util.random import weighted_sample
 
 
@@ -47,12 +47,10 @@ class CarnivoreCreatureParams(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     hair: CarnivoreHairParams
-    body_theta_scale: Annotated[float, Field(ge=0.7, le=1.3)]
     use_carnivore_head: bool = False
     head_length_rad1_rad2: tuple[float, float, float]
     jaw_coord: tuple[float, float, float]
     jaw_rest_y: Annotated[float, Field(ge=10.0, le=35.0)]
-    nurbs_head_var: Annotated[float, Field(ge=0.7, le=1.3)]
     eye_radius: Annotated[float, Field(ge=0.0, le=0.06)]
     eye_t: Annotated[float, Field(ge=0.61, le=0.64)]
     eye_splay: Annotated[float, Field(ge=90.0, le=140.0)]
@@ -112,12 +110,10 @@ def sample_creature_params() -> CarnivoreCreatureParams:
         jaw_coord = (0.12, 0.0, 0.3 * N(1, 0.1))
     return CarnivoreCreatureParams(
         hair=hair,
-        body_theta_scale=float(N(1, 0.1)),
         use_carnivore_head=use_carnivore_head,
         head_length_rad1_rad2=head_length_rad1_rad2,
         jaw_coord=jaw_coord,
         jaw_rest_y=float(U(10, 35)),
-        nurbs_head_var=float(N(1, 0.1)),
         eye_radius=float(N(0.027, 0.009)),
         eye_t=float(U(0.61, 0.64)),
         eye_splay=float(U(90, 140)),
@@ -161,12 +157,17 @@ def tiger_skin_sim_params():
     }
 
 
-def tiger_genome(params: CarnivoreCreatureParams):
+def tiger_genome(
+    params: CarnivoreCreatureParams,
+    *,
+    body_theta_scale: float,
+    nurbs_head_var: float,
+):
     p = params
     body_fac = parts.generic_nurbs.NurbsBody(
         prefix="body_feline", tags=["body"], var=0.7, temperature=0.2
     )
-    body_fac.params["thetas"][-3] *= p.body_theta_scale
+    body_fac.params["thetas"][-3] *= body_theta_scale
     body = genome.part(body_fac)
 
     tail = genome.part(parts.tail.Tail())
@@ -192,7 +193,7 @@ def tiger_genome(params: CarnivoreCreatureParams):
 
     else:
         head_fac = parts.generic_nurbs.NurbsHead(
-            prefix="head_carnivore", tags=["head"], var=p.nurbs_head_var
+            prefix="head_carnivore", tags=["head"], var=nurbs_head_var
         )
         head = genome.part(head_fac)
 
@@ -299,13 +300,9 @@ def tiger_genome(params: CarnivoreCreatureParams):
 
 
 class CarnivoreParameters(AssetParameters):
-    body_theta_scale: Annotated[
-        float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": False})
-    ]
     jaw_rest_y: Annotated[
         float, Field(ge=10.0, le=35.0, json_schema_extra={"editable": False})
     ]
-    # NOTE: only applies when use_carnivore_head=True.
     eye_radius: Annotated[
         float, Field(ge=0.0, le=0.06, json_schema_extra={"editable": False})
     ]
@@ -314,9 +311,6 @@ class CarnivoreParameters(AssetParameters):
     ]
     shoulder_splay: Annotated[
         float, Field(ge=90.0, le=130.0, json_schema_extra={"editable": False})
-    ]
-    nurbs_head_var: Annotated[
-        float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": True})
     ]
     creature: CarnivoreCreatureParams
 
@@ -360,12 +354,10 @@ class CarnivoreFactory(ParameterizedAssetFactory, AssetFactory):
         creature = sample_creature_params()
         return CarnivoreParameters(
             seed=seed,
-            body_theta_scale=creature.body_theta_scale,
             jaw_rest_y=creature.jaw_rest_y,
             eye_radius=creature.eye_radius,
             neck_rest_y=creature.neck_rest_y,
             shoulder_splay=creature.shoulder_splay,
-            nurbs_head_var=creature.nurbs_head_var,
             creature=creature,
         )
 
@@ -384,14 +376,15 @@ class CarnivoreFactory(ParameterizedAssetFactory, AssetFactory):
                 self._teeth_material,
                 self._nose_material,
             ) = self._sample_materials()
+        with FixedSeed(params.seed):
+            self._body_theta_scale = float(N(1, 0.1))
+            self._nurbs_head_var = float(N(1, 0.1))
         self.creature_params = params.creature.model_copy(
             update={
-                "body_theta_scale": params.body_theta_scale,
                 "jaw_rest_y": params.jaw_rest_y,
                 "eye_radius": params.eye_radius,
                 "neck_rest_y": params.neck_rest_y,
                 "shoulder_splay": params.shoulder_splay,
-                "nurbs_head_var": params.nurbs_head_var,
             }
         )
         self.body_material = self._body_material
@@ -420,7 +413,11 @@ class CarnivoreFactory(ParameterizedAssetFactory, AssetFactory):
         self.nose_material.apply(joining.get_parts(root, False, "Nose"))
 
     def create_asset(self, i, placeholder, **kwargs):
-        genome = tiger_genome(self.creature_params)
+        genome = tiger_genome(
+            self.creature_params,
+            body_theta_scale=self._body_theta_scale,
+            nurbs_head_var=self._nurbs_head_var,
+        )
         root, parts = creature.genome_to_creature(
             genome, name=f"carnivore({self.factory_seed}, {i})"
         )

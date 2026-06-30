@@ -49,16 +49,16 @@ class SeaweedParameters(AssetParameters):
     base_hue: Annotated[
         float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": False})
     ]
-    growth_z: Annotated[float, Field(ge=3.0, le=6.0, json_schema_extra={"editable": True})]
+    growth_z: Annotated[float, Field(ge=3.0, le=6.0, json_schema_extra={"editable": False})]
     inhibit_shell: Annotated[
-        float, Field(ge=0.6, le=0.8, json_schema_extra={"editable": True})
+        float, Field(ge=0.6, le=0.8, json_schema_extra={"editable": False})
     ]
-    fac_noise: Annotated[float, Field(ge=1.5, le=2.5, json_schema_extra={"editable": True})]
+    fac_noise: Annotated[float, Field(ge=1.5, le=2.5, json_schema_extra={"editable": False})]
     repulsion_radius: Annotated[
-        float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": True})
+        float, Field(ge=1.0, le=1.5, json_schema_extra={"editable": False})
     ]
     height_scale: Annotated[
-        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})
+        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": False})
     ]
 
 

@@ -4,12 +4,11 @@
 # Authors: Lingjie Mei
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import ClassVar
 
 import bpy
 import numpy as np
 from numpy.random import uniform
-from pydantic import Field
 
 from infinigen.assets.materials.wood import wood
 from infinigen.assets.utils.decorate import read_normal
@@ -26,15 +25,7 @@ from infinigen.core.util.math import FixedSeed
 
 
 class PalletParameters(AssetParameters):
-    depth: Annotated[float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": False})]
-    width: Annotated[float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": False})]
-    tile_width: Annotated[
-        float, Field(ge=0.06, le=0.1, json_schema_extra={"editable": False})
-    ]
-    tile_slackness: Annotated[
-        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})
-    ]
-    height: Annotated[float, Field(ge=0.2, le=0.25, json_schema_extra={"editable": False})]
+    pass
 
 
 class PalletFactory(ParameterizedAssetFactory, AssetFactory):
@@ -44,28 +35,31 @@ class PalletFactory(ParameterizedAssetFactory, AssetFactory):
         super(PalletFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_pallet_tier1(self) -> None:
+        self._depth = uniform(1.2, 1.4)
+        self._width = uniform(1.2, 1.4)
+        self._tile_width = uniform(0.06, 0.1)
+        self._tile_slackness = uniform(1.5, 2)
+        self._height = uniform(0.2, 0.25)
+
     def _sample_init_parameters(self, seed: int) -> PalletParameters:
         self.surface = wood.Wood()()
-        return PalletParameters(
-            seed=seed,
-            depth=uniform(1.2, 1.4),
-            width=uniform(1.2, 1.4),
-            tile_width=uniform(0.06, 0.1),
-            tile_slackness=uniform(1.5, 2),
-            height=uniform(0.2, 0.25),
-        )
+        self._sample_pallet_tier1()
+        return PalletParameters(seed=seed)
 
     def apply_parameters(
         self, params: PalletParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.depth = params.depth
-        self.width = params.width
-        # NOTE: thickness sampled on self from seed; excluded from quartet sampling.
+        if not hasattr(self, "_depth"):
+            with FixedSeed(params.seed):
+                self._sample_pallet_tier1()
+        self.depth = self._depth
+        self.width = self._width
         with FixedSeed(params.seed):
             self.thickness = uniform(0.01, 0.015)
-        self.tile_width = params.tile_width
-        self.tile_slackness = params.tile_slackness
-        self.height = params.height
+        self.tile_width = self._tile_width
+        self.tile_slackness = self._tile_slackness
+        self.height = self._height
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:

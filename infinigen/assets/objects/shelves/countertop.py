@@ -42,9 +42,6 @@ class CountertopParameters(AssetParameters):
         float,
         Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ] = 1.0
-    extrusion: Annotated[
-        float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": True})
-    ] = 0.025
 
 
 class CountertopFactory(ParameterizedAssetFactory, AssetFactory):
@@ -64,7 +61,6 @@ class CountertopFactory(ParameterizedAssetFactory, AssetFactory):
             seed=seed,
             thickness=uniform(0.02, 0.06),
             has_extrusion_draw=1.0,
-            extrusion=uniform(0.02, 0.03),
         )
 
     def apply_parameters(
@@ -72,11 +68,9 @@ class CountertopFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         self.surface = rg(self.surfaces)
         self.thickness = params.thickness
-        self.extrusion = (
-            0.0
-            if params.has_extrusion_draw < 0.4
-            else params.extrusion
-        )
+        with FixedSeed(params.seed):
+            extrusion = uniform(0.02, 0.03)
+        self.extrusion = 0.0 if params.has_extrusion_draw < 0.4 else extrusion
         self._use_fixed_spawn_draws = spawn_scope
 
     @staticmethod

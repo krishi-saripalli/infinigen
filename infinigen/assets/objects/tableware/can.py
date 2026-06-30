@@ -52,21 +52,12 @@ class CanParameters(AssetParameters):
             json_schema_extra={"editable": False, "kind": "draw_bool"},
         ),
     ]
-    cap_scale: Annotated[
-        float, Field(ge=0.96, le=0.98, json_schema_extra={"editable": True})
-    ] = 0.97
     cap_extrude: Annotated[
         float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
     ] = 0.0075
     rect_side_frac: Annotated[
         float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})
     ] = 0.5
-    wrap_low_frac: Annotated[
-        float, Field(ge=0.0, le=0.1, json_schema_extra={"editable": True})
-    ] = 0.05
-    wrap_high_frac: Annotated[
-        float, Field(ge=0.9, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.95
     shape: Annotated[
         str,
         Field(
@@ -113,11 +104,8 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_spawn_field_updates(self) -> dict[str, float]:
         return {
-            "cap_scale": uniform(0.96, 0.98),
             "cap_extrude": uniform(0.005, 0.01),
             "rect_side_frac": uniform(0.2, 0.8),
-            "wrap_low_frac": uniform(0, 0.1),
-            "wrap_high_frac": uniform(0.9, 1.0),
         }
 
     def _sample_init_parameters(self, seed: int) -> CanParameters:
@@ -154,11 +142,12 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
         )
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
-            self.cap_scale = params.cap_scale
+            with FixedSeed(params.seed):
+                self.cap_scale = uniform(0.96, 0.98)
+                self.wrap_low_frac = uniform(0, 0.1)
+                self.wrap_high_frac = uniform(0.9, 1.0)
             self.cap_extrude = params.cap_extrude
             self.rect_side_frac = params.rect_side_frac
-            self.wrap_low_frac = params.wrap_low_frac
-            self.wrap_high_frac = params.wrap_high_frac
 
     def create_asset(self, **params) -> bpy.types.Object:
         coords = self.make_coords()

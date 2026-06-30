@@ -28,14 +28,10 @@ class PlateParameters(AssetParameters):
     thickness_ratio: Annotated[
         float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
     ]
-    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
     x_mid: Annotated[float, Field(ge=0.3, le=1.0, json_schema_extra={"editable": True})]
     z_length: Annotated[float, Field(ge=0.05, le=0.2, json_schema_extra={"editable": True})]
     z_mid_ratio: Annotated[
         float, Field(ge=0.3, le=0.8, json_schema_extra={"editable": False})
-    ]
-    has_inside: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ]
     scratch_draw: Annotated[
         float,
@@ -71,11 +67,9 @@ class PlateFactory(ParameterizedAssetFactory, TablewareFactory):
         return PlateParameters(
             seed=seed,
             thickness_ratio=uniform(0.01, 0.03),
-            lower_thresh=base["lower_thresh"],
             x_mid=uniform(0.3, 1.0),
             z_length=z_length,
             z_mid_ratio=uniform(0.3, 0.8),
-            has_inside=bool(uniform() < 0.2),
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
         )
@@ -86,15 +80,17 @@ class PlateFactory(ParameterizedAssetFactory, TablewareFactory):
         # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
             self.scale = log_uniform(0.2, 0.4)
+            base = sample_tableware_base(params.seed)
+            self._lower_thresh = base["lower_thresh"]
+            self.has_inside = bool(uniform() < 0.2)
         apply_tableware_from_draws(
             self,
             seed=params.seed,
-            lower_thresh=params.lower_thresh,
+            lower_thresh=self._lower_thresh,
             scale=self.scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,
         )
-        self.has_inside = params.has_inside
         self.x_mid = params.x_mid * self.x_end
         self.z_length = params.z_length
         self.z_mid = params.z_mid_ratio * params.z_length

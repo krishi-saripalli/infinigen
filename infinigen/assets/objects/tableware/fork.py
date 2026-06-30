@@ -42,7 +42,6 @@ class ForkParameters(AssetParameters):
     has_guard: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = True
-    lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
     scratch_draw: Annotated[
         float,
         Field(
@@ -62,60 +61,12 @@ class ForkParameters(AssetParameters):
     standard_tines: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
-    x_anchor_1: Annotated[
-        float, Field(ge=-0.04, le=-0.02, json_schema_extra={"editable": True})
-    ] = -0.03
-    x_anchor_tail_mult: Annotated[
-        float, Field(ge=1.2, le=1.4, json_schema_extra={"editable": True})
-    ] = 1.3
-    y_anchor_0_mult: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.9
-    y_anchor_1_mult: Annotated[
-        float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})
-    ] = 1.1
-    y_anchor_2_mult: Annotated[
-        float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.8
-    y_anchor_3_mult: Annotated[
-        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
-    ] = 0.3
-    y_anchor_4: Annotated[
-        float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
-    ] = 0.015
-    y_anchor_5: Annotated[
-        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})
-    ] = 0.035
-    y_anchor_6: Annotated[
-        float, Field(ge=0.01, le=0.02, json_schema_extra={"editable": True})
-    ] = 0.015
-    z_anchor_mid: Annotated[
-        float, Field(ge=-0.02, le=0.04, json_schema_extra={"editable": True})
-    ] = 0.01
-    z_anchor_tail: Annotated[
-        float, Field(ge=-0.02, le=0.0, json_schema_extra={"editable": True})
-    ] = -0.01
 
 
 class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
     parameters_model: ClassVar[type[AssetParameters]] = ForkParameters
     x_end = 0.15
     is_fragile = True
-
-    def _sample_spawn_anchor_updates(self) -> dict[str, float]:
-        return {
-            "x_anchor_1": uniform(-0.04, -0.02),
-            "x_anchor_tail_mult": log_uniform(1.2, 1.4),
-            "y_anchor_0_mult": log_uniform(0.8, 1.0),
-            "y_anchor_1_mult": log_uniform(1.0, 1.2),
-            "y_anchor_2_mult": log_uniform(0.6, 1.0),
-            "y_anchor_3_mult": log_uniform(0.2, 0.4),
-            "y_anchor_4": log_uniform(0.01, 0.02),
-            "y_anchor_5": log_uniform(0.02, 0.05),
-            "y_anchor_6": log_uniform(0.01, 0.02),
-            "z_anchor_mid": uniform(-0.02, 0.04),
-            "z_anchor_tail": uniform(-0.02, 0.0),
-        }
 
     def __init__(self, factory_seed, coarse=False):
         AssetFactory.__init__(self, factory_seed, coarse)
@@ -138,17 +89,10 @@ class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
             thickness=thickness,
             guard_depth_mult=log_uniform(0.2, 1.0),
             has_guard=True,
-            lower_thresh=base["lower_thresh"],
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
             standard_tines=standard_tines,
-            **self._sample_spawn_anchor_updates(),
         )
-
-    def _sample_spawn_parameters(
-        self, params: ForkParameters, seed: int, i: int
-    ) -> ForkParameters:
-        return params.model_copy(update=self._sample_spawn_anchor_updates())
 
     def apply_parameters(
         self, params: ForkParameters, *, spawn_scope: bool = True
@@ -156,13 +100,25 @@ class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
         # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
             self.scale = log_uniform(0.15, 0.25)
-            # NOTE: x_length, z_offset do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            base = sample_tableware_base(params.seed)
+            self._lower_thresh = base["lower_thresh"]
             self.x_length = log_uniform(0.4, 0.8)
             self.z_offset = uniform(0.0, 0.05)
+            self._x_anchor_1 = uniform(-0.04, -0.02)
+            self._x_anchor_tail_mult = log_uniform(1.2, 1.4)
+            self._y_anchor_0_mult = log_uniform(0.8, 1.0)
+            self._y_anchor_1_mult = log_uniform(1.0, 1.2)
+            self._y_anchor_2_mult = log_uniform(0.6, 1.0)
+            self._y_anchor_3_mult = log_uniform(0.2, 0.4)
+            self._y_anchor_4 = log_uniform(0.01, 0.02)
+            self._y_anchor_5 = log_uniform(0.02, 0.05)
+            self._y_anchor_6 = log_uniform(0.01, 0.02)
+            self._z_anchor_mid = uniform(-0.02, 0.04)
+            self._z_anchor_tail = uniform(-0.02, 0.0)
         apply_tableware_from_draws(
             self,
             seed=params.seed,
-            lower_thresh=params.lower_thresh,
+            lower_thresh=self._lower_thresh,
             scale=self.scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,
@@ -182,17 +138,6 @@ class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
         with FixedSeed(params.seed):
             self.guard_type = "round" if uniform(0, 1) < 0.6 else "double"
         self.guard_depth = params.guard_depth_mult * params.thickness
-        self._x_anchor_1 = params.x_anchor_1
-        self._x_anchor_tail_mult = params.x_anchor_tail_mult
-        self._y_anchor_0_mult = params.y_anchor_0_mult
-        self._y_anchor_1_mult = params.y_anchor_1_mult
-        self._y_anchor_2_mult = params.y_anchor_2_mult
-        self._y_anchor_3_mult = params.y_anchor_3_mult
-        self._y_anchor_4 = params.y_anchor_4
-        self._y_anchor_5 = params.y_anchor_5
-        self._y_anchor_6 = params.y_anchor_6
-        self._z_anchor_mid = params.z_anchor_mid
-        self._z_anchor_tail = params.z_anchor_tail
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

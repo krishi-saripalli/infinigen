@@ -32,12 +32,6 @@ class BottleParameters(AssetParameters):
     x_length_ratio: Annotated[
         float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": True})
     ]
-    wrap_z_min_frac: Annotated[
-        float, Field(ge=0.02, le=0.15, json_schema_extra={"editable": True})
-    ] = 0.08
-    wrap_z_max_frac: Annotated[
-        float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": True})
-    ] = 0.035
 
 
 class BottleFactory(ParameterizedAssetFactory, AssetFactory):
@@ -49,6 +43,7 @@ class BottleFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    # TODO: Sample bottle type and when branch-gated parameters are supported in sampling, sample those as well.
     def _sample_bottle_shape(self, seed: int, x_cap: float) -> None:
         with FixedSeed(seed):
             self.bottle_type = np.random.choice(
@@ -202,12 +197,6 @@ class BottleFactory(ParameterizedAssetFactory, AssetFactory):
         with FixedSeed(seed):
             return bool(uniform() < 0.2)
 
-    def _sample_spawn_field_updates(self) -> dict[str, float]:
-        return {
-            "wrap_z_min_frac": uniform(0.02, self.z_waist_offset),
-            "wrap_z_max_frac": uniform(0.02, self.z_neck_offset),
-        }
-
     def _sample_init_parameters(self, seed: int) -> BottleParameters:
         x_cap = uniform(0.3, 0.35)
         self._sample_bottle_shape(seed, x_cap)
@@ -216,13 +205,7 @@ class BottleFactory(ParameterizedAssetFactory, AssetFactory):
         return BottleParameters(
             seed=seed,
             x_length_ratio=uniform(0.15, 0.25),
-            **self._sample_spawn_field_updates(),
         )
-
-    def _sample_spawn_parameters(
-        self, params: BottleParameters, seed: int, i: int
-    ) -> BottleParameters:
-        return params.model_copy(update=self._sample_spawn_field_updates())
 
     def apply_parameters(
         self, params: BottleParameters, *, spawn_scope: bool = True
@@ -243,10 +226,13 @@ class BottleFactory(ParameterizedAssetFactory, AssetFactory):
         self.texture_shared = self._sample_texture_shared(params.seed)
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
-            self.wrap_z_max = self.z_neck - params.wrap_z_max_frac * (
+            with FixedSeed(params.seed):
+                wrap_z_max_frac = uniform(0.02, self.z_neck_offset)
+                wrap_z_min_frac = uniform(0.02, self.z_waist_offset)
+            self.wrap_z_max = self.z_neck - wrap_z_max_frac * (
                 self.z_neck - self.z_waist
             )
-            self.wrap_z_min = self.z_waist + params.wrap_z_min_frac * (
+            self.wrap_z_min = self.z_waist + wrap_z_min_frac * (
                 self.z_neck - self.z_waist
             )
         else:

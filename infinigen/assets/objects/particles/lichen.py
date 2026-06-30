@@ -31,9 +31,6 @@ from infinigen.infinigen_gpl.extras.diff_growth import build_diff_growth
 
 class LichenParameters(AssetParameters):
     n: Annotated[int, Field(ge=4, le=5, json_schema_extra={"editable": True})]
-    max_polygon_factor: Annotated[
-        float, Field(ge=0.2, le=1.0, json_schema_extra={"editable": True})
-    ] = 0.5
 
 
 class LichenFactory(ParameterizedAssetFactory, AssetFactory):
@@ -54,25 +51,17 @@ class LichenFactory(ParameterizedAssetFactory, AssetFactory):
         return LichenParameters(
             seed=seed,
             n=int(np.random.randint(4, 6)),
-            max_polygon_factor=uniform(0.2, 1),
         )
-
-    def _sample_spawn_parameters(
-        self, params: LichenParameters, seed: int, i: int
-    ) -> LichenParameters:
-        return params.model_copy(update={"max_polygon_factor": uniform(0.2, 1)})
 
     def apply_parameters(
         self, params: LichenParameters, *, spawn_scope: bool = True
     ) -> None:
         self.base_hue = self._sample_base_hue(params.seed)
         self.n = params.n
-        # NOTE: shader_hue_offset resampled in _sample_spawn_parameters overwrote edits; sampled on self from seed, excluded from quartet sampling.
         with FixedSeed(params.seed):
             self._shader_hue_offset = uniform(-0.04, 0.04)
+            self.max_polygon_factor = uniform(0.2, 1)
         self._use_fixed_spawn_draws = spawn_scope
-        if spawn_scope:
-            self.max_polygon_factor = params.max_polygon_factor
 
     @staticmethod
     def build_lichen_circle_mesh(n):

@@ -19,8 +19,29 @@ from infinigen.core.util import blender as butil
 from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
-from .base import apply_tableware_from_draws
+from .base import apply_tableware_from_draws, sample_tableware_base
 from .pan import PanFactory, PanParameters
+
+_POT_TIER1_FIELDS = (
+    "bar_radius",
+    "grid_offset",
+    "guard_depth_mult",
+    "has_guard",
+    "has_handle_hole",
+    "hole_location_frac",
+    "hole_scale",
+    "lower_thresh",
+    "n_vertices",
+    "pot_guard_depth_mult",
+    "r_mid",
+    "s_handle",
+    "scale",
+    "thickness",
+    "x_guard_extra",
+    "x_handle",
+    "z_handle_frac",
+    "z_handle_mid_frac",
+)
 
 
 class PotParameters(PanParameters):
@@ -28,17 +49,11 @@ class PotParameters(PanParameters):
     has_bar: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = True
-    bar_radius: Annotated[float, Field(ge=0.2, le=0.3, json_schema_extra={"editable": False})]
     bar_scale_x: Annotated[float, Field(ge=0.6, le=1.0, json_schema_extra={"editable": True})]
-    pot_guard_depth_mult: Annotated[
-        float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})
-    ]
 
 
-PotParameters.model_fields.pop("scale")
-PotParameters.model_fields.pop("r_mid")
-PotParameters.model_fields.pop("thickness")
-PotParameters.model_fields.pop("guard_depth_mult")
+for _field in _POT_TIER1_FIELDS:
+    PotParameters.model_fields.pop(_field, None)
 PotParameters.model_rebuild(force=True)
 
 
@@ -57,67 +72,67 @@ class PotFactory(PanFactory):
         pan_data = {
             k: v
             for k, v in pan_params.model_dump().items()
-            if k not in ("scale", "r_mid", "thickness", "guard_depth_mult")
+            if k not in _POT_TIER1_FIELDS
         }
-        bar_radius = log_uniform(0.2, 0.3)
         scale_mid = log_uniform(0.6, 1.5)
         return PotParameters(
             **pan_data,
             pot_depth=log_uniform(0.6, 2.0),
             has_bar=True,
-            bar_radius=bar_radius,
             bar_scale_x=np.clip(log_uniform(0.6, 1.0) * scale_mid, 0.6, 1.0),
-            pot_guard_depth_mult=log_uniform(0.5, 1.0),
         )
+
+    def _sample_spawn_parameters(
+        self, params: PotParameters, seed: int, i: int
+    ) -> PotParameters:
+        return params
 
     def apply_parameters(
         self, params: PotParameters, *, spawn_scope: bool = True
     ) -> None:
-        # NOTE: scale sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
             pan_scale = log_uniform(0.1, 0.15)
+            base = sample_tableware_base(params.seed)
+            lower_thresh = base["lower_thresh"]
+            self.has_handle_hole = bool(uniform() < 0.6)
+            self.x_handle = log_uniform(1.2, 2.0)
+            z_handle_frac = uniform(0, 0.2)
+            self.z_handle = self.x_handle * z_handle_frac
+            self.z_handle_mid = uniform(0.6, 0.8) * self.z_handle
+            self.s_handle = log_uniform(0.8, 1.2)
+            x_guard_extra = uniform(0, 0.2)
+            self.x_guard = params.r_expand + x_guard_extra * self.x_handle
+            self.bar_radius = log_uniform(0.2, 0.3)
+            pot_guard_depth_mult = log_uniform(0.5, 1.0)
+            self.r_mid = log_uniform(1.0, 1.3)
+            self.thickness = log_uniform(0.04, 0.06)
+            bar_height_frac = uniform(0.75, 0.85)
+            bar_inner_radius_ratio = log_uniform(0.2, 0.4)
+            bar_scale_z = np.clip(log_uniform(0.6, 1.2) * log_uniform(0.6, 1.5), 0.6, 1.2)
+            bar_taper = log_uniform(0.3, 0.8)
+            bar_y_rotation = uniform(-np.pi / 6, 0)
+            bar_x_offset_frac = uniform(-0.1, 0.1)
+            self.bar_x = 1 + uniform(-self.bar_radius, self.bar_radius) * 0.05
+            n_factor = log_uniform(4, 8)
+            n = 4 * int(n_factor)
+            grid_offset = int(np.random.randint(n // 4))
+            hole_scale = uniform(0.06, 0.1)
+            hole_location_frac = uniform(0.8, 0.9)
         apply_tableware_from_draws(
             self,
             seed=params.seed,
-            lower_thresh=params.lower_thresh,
+            lower_thresh=lower_thresh,
             scale=pan_scale,
             scratch_draw=params.scratch_draw,
             edge_wear_draw=params.edge_wear_draw,
             metal_color=None,
         )
-        self.has_handle_hole = params.has_handle_hole
-        self.x_handle = params.x_handle
-        self.z_handle = params.x_handle * params.z_handle_frac
-        self.z_handle_mid = params.z_handle_mid_frac * self.z_handle
-        self.s_handle = params.s_handle
-        self.x_guard = params.r_expand + params.x_guard_extra * params.x_handle
         self.depth = params.depth
         self.r_expand = params.r_expand
         self.scale = pan_scale
         self.has_bar = params.has_bar
         self.has_handle = not self.has_bar
-        # NOTE: has_guard is derived from has_bar and not wired into exported geometry for plant_pot; excluded from quartet sampling.
         self.has_guard = not self.has_bar
-        # NOTE: bar_radius only affects geometry when has_bar is True.
-        self.bar_radius = params.bar_radius
-        # NOTE: r_mid is not wired to exported geometry; excluded from quartet sampling.
-        # NOTE: thickness is not wired to exported geometry; excluded from quartet sampling.
-        with FixedSeed(params.seed):
-            self.r_mid = log_uniform(1.0, 1.3)
-            self.thickness = log_uniform(0.04, 0.06)
-            # NOTE: bar_height_frac is not wired to exported geometry; excluded from quartet sampling.
-            bar_height_frac = uniform(0.75, 0.85)
-            # NOTE: bar_inner_radius_ratio is not wired to exported geometry; excluded from quartet sampling.
-            bar_inner_radius_ratio = log_uniform(0.2, 0.4)
-            # NOTE: bar_scale_z is not wired to exported geometry; excluded from quartet sampling.
-            bar_scale_z = np.clip(log_uniform(0.6, 1.2) * log_uniform(0.6, 1.5), 0.6, 1.2)
-            # NOTE: bar_taper is not wired to exported geometry; excluded from quartet sampling.
-            bar_taper = log_uniform(0.3, 0.8)
-            # NOTE: bar_y_rotation is not wired to exported geometry; excluded from quartet sampling.
-            bar_y_rotation = uniform(-np.pi / 6, 0)
-            # NOTE: bar_x_offset_frac is not wired to exported geometry; excluded from quartet sampling.
-            bar_x_offset_frac = uniform(-0.1, 0.1)
-            self.bar_x = 1 + uniform(-self.bar_radius, self.bar_radius) * 0.05
         self.bar_height = params.pot_depth * bar_height_frac
         self.bar_inner_radius = self.bar_radius * bar_inner_radius_ratio
         self.bar_scale = (params.bar_scale_x, 1.0, bar_scale_z)
@@ -125,13 +140,13 @@ class PotFactory(PanFactory):
         self.bar_y_rotation = bar_y_rotation
         self.bar_x_offset = self.bar_radius * bar_x_offset_frac
         self.guard_type = "round"
-        self.guard_depth = params.pot_guard_depth_mult * self.thickness
+        self.guard_depth = pot_guard_depth_mult * self.thickness
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
-            self._n = 4 * int(params.n_vertices)
-            self._grid_offset = params.grid_offset
-            self._hole_scale = params.hole_scale
-            self._hole_location_frac = params.hole_location_frac
+            self._n = n
+            self._grid_offset = grid_offset
+            self._hole_scale = hole_scale
+            self._hole_location_frac = hole_location_frac
 
     def post_init(self) -> None:
         if not hasattr(self, "has_bar"):

@@ -16,6 +16,7 @@ from infinigen.core.nodes import node_utils
 from infinigen.core.nodes.node_wrangler import Nodes, NodeWrangler
 from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
 
@@ -111,14 +112,6 @@ def nodegroup_pine_needle(nw: NodeWrangler):
 
 
 class PineNeedleParameters(AssetParameters):
-    s: Annotated[
-        float,
-        Field(
-            ge=0.4,
-            le=1.6,
-            json_schema_extra={"editable": False},
-        ),
-    ]
     Bend: Annotated[float, Field(ge=0.4, le=1.6, json_schema_extra={"editable": True})]
     Radius: Annotated[
         float, Field(ge=0.4, le=1.6, json_schema_extra={"editable": True})
@@ -134,16 +127,14 @@ class PineNeedleFactory(ParameterizedAssetFactory, AssetFactory):
 
     @staticmethod
     def _sample_shape_params() -> dict[str, float]:
-        s = N(1, 0.2)
         return {
-            "s": s,
             "Bend": N(1, 0.2),
             "Radius": N(1, 0.2),
         }
 
     def sample_params(self) -> dict[str, float]:
         params = self._sample_shape_params()
-        s = params["s"]
+        s = N(1, 0.2)
         return {
             "Scale": 0.04 * s,
             "Bend": 0.03 * s * params["Bend"],
@@ -156,7 +147,8 @@ class PineNeedleFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: PineNeedleParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.s = params.s
+        with FixedSeed(params.seed):
+            self.s = N(1, 0.2)
         self.Bend = params.Bend
         self.Radius = params.Radius
         self._use_fixed_spawn_draws = spawn_scope

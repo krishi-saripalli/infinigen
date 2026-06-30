@@ -23,9 +23,9 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 class WineglassParameters(AssetParameters):
     z_length: Annotated[float, Field(ge=0.6, le=2.0, json_schema_extra={"editable": True})]
     z_cup: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})]
-    z_mid: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": False})]
+    z_mid: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": True})]
     x_top: Annotated[float, Field(ge=1.0, le=1.4, json_schema_extra={"editable": True})]
-    x_mid: Annotated[float, Field(ge=0.9, le=1.2, json_schema_extra={"editable": False})]
+    x_mid: Annotated[float, Field(ge=0.9, le=1.2, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": False})]
     scratch_draw: Annotated[
         float,
@@ -43,10 +43,6 @@ class WineglassParameters(AssetParameters):
             json_schema_extra={"editable": False, "kind": "draw_bool"},
         ),
     ]
-    z_bottom_frac: Annotated[
-        float, Field(ge=0.01, le=0.05, json_schema_extra={"editable": True})
-    ] = 0.03
-
 
 class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
     parameters_model: ClassVar[type[AssetParameters]] = WineglassParameters
@@ -96,13 +92,7 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
             thickness=uniform(0.01, 0.03),
             scratch_draw=base["scratch_draw"],
             edge_wear_draw=base["edge_wear_draw"],
-            z_bottom_frac=log_uniform(0.01, 0.05),
         )
-
-    def _sample_spawn_parameters(
-        self, params: WineglassParameters, seed: int, i: int
-    ) -> WineglassParameters:
-        return params.model_copy(update={"z_bottom_frac": log_uniform(0.01, 0.05)})
 
     def apply_parameters(
         self, params: WineglassParameters, *, spawn_scope: bool = True
@@ -120,7 +110,8 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
             self.x_neck = log_uniform(0.01, 0.02)
         self.x_top = self.x_end * params.x_top
         self.x_mid = self.x_top * params.x_mid
-        self._z_bottom = params.z_bottom_frac
+        with FixedSeed(params.seed):
+            self._z_bottom = log_uniform(0.01, 0.05)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params) -> bpy.types.Object:

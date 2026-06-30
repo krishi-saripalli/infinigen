@@ -83,10 +83,6 @@ def make_coiled(
 
 class MattressParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.9, le=2.0, json_schema_extra={"editable": True})]
-    size: Annotated[float, Field(ge=2.0, le=2.4, json_schema_extra={"editable": False})]
-    thickness: Annotated[
-        float, Field(ge=0.2, le=0.35, json_schema_extra={"editable": True})
-    ]
     mattress_style: Annotated[
         str,
         Field(
@@ -108,30 +104,34 @@ class MattressFactory(ParameterizedAssetFactory, AssetFactory):
         self.wrap_distance = 0.05
         self.init_legacy_parameters()
 
+    def _sample_mattress_tier1(self) -> None:
+        self._size = uniform(2, 2.4)
+        self._thickness = uniform(0.2, 0.35)
+
     def _sample_init_parameters(self, seed: int) -> MattressParameters:
         surface_gen_class = weighted_sample(material_assignments.fabrics)
         self.surface = surface_gen_class()()
+        self._sample_mattress_tier1()
         return MattressParameters(
             seed=seed,
             width=log_uniform(0.9, 2.0),
-            size=uniform(2, 2.4),
-            thickness=uniform(0.2, 0.35),
             mattress_style="coiled",
         )
 
     def apply_parameters(
         self, params: MattressParameters, *, spawn_scope: bool = True
     ) -> None:
+        if not hasattr(self, "_size"):
+            with FixedSeed(params.seed):
+                self._sample_mattress_tier1()
         self.width = params.width
-        self.size = params.size
-        self.thickness = params.thickness
-        # NOTE: dot_distance, dot_size, dot_depth do not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+        self.size = self._size
+        self.thickness = self._thickness
         with FixedSeed(params.seed):
             self.dot_distance = log_uniform(0.16, 0.2)
             self.dot_size = uniform(0.005, 0.02)
             self.dot_depth = uniform(0.04, 0.08)
         self.type = params.mattress_style
-        # NOTE: coiled_smooth_draw and wrapped_pressure resampled in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
         with FixedSeed(params.seed):
             self.coiled_smooth_draw = uniform(0.5, 1.0)
             self.wrapped_pressure = uniform(0.1, 0.2)

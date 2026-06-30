@@ -1398,7 +1398,6 @@ def _triangle_shelf_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
 class TriangleShelfParameters(AssetParameters):
     leg_length: Annotated[float, Field(ge=0.45, le=0.75, json_schema_extra={"editable": True})]
     board_width: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
-    leg_width: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})]
     board_thickness: Annotated[
         float, Field(ge=0.01, le=0.025, json_schema_extra={"editable": False})
     ]
@@ -1421,7 +1420,6 @@ class TriangleShelfFactory(ParameterizedAssetFactory, TriangleShelfBaseFactory):
             seed=seed,
             leg_length=leg_length,
             board_width=np.clip(normal(0.3, 0.03), 0.2, 0.4),
-            leg_width=uniform(0.01, 0.03),
             board_thickness=uniform(0.01, 0.025),
             bottom_layer_height=uniform(0.05, 0.1),
         )
@@ -1431,13 +1429,12 @@ class TriangleShelfFactory(ParameterizedAssetFactory, TriangleShelfBaseFactory):
     ) -> None:
         with FixedSeed(params.seed):
             TriangleShelfBaseFactory.__init__(self, params.seed, {}, self.coarse)
-            # NOTE: board_extrude_length does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
             board_extrude_length = uniform(0.03, 0.07)
-            # NOTE: board_thickness and bottom_layer_height effects gated by resampled top_layer_height; excluded from quartet sampling.
+            leg_width = uniform(0.01, 0.03)
             self.params = {
                 "leg_length": params.leg_length,
                 "board_width": params.board_width,
-                "leg_width": params.leg_width,
+                "leg_width": leg_width,
                 "board_thickness": params.board_thickness,
                 "bottom_layer_height": params.bottom_layer_height,
                 "board_extrude_length": board_extrude_length,

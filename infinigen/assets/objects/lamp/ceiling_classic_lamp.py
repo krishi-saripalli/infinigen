@@ -422,10 +422,6 @@ class CeilingClassicLampParameters(AssetParameters):
     bottom_radius: Annotated[
         float, Field(ge=0.22, le=0.35, json_schema_extra={"editable": True})
     ]
-    Thickness: Annotated[
-        float, Field(ge=0.002, le=0.006, json_schema_extra={"editable": True})
-    ]
-    Amount: Annotated[int, Field(ge=1, le=7, json_schema_extra={"editable": True})]
 
 
 class CeilingClassicLampFactory(ParameterizedAssetFactory, AssetFactory):
@@ -443,19 +439,20 @@ class CeilingClassicLampFactory(ParameterizedAssetFactory, AssetFactory):
             height=uniform(0.4, 0.710),
             top_radius=uniform(0.05, 0.2),
             bottom_radius=uniform(0.22, 0.35),
-            Thickness=uniform(0.002, 0.006),
-            Amount=randint(1, 8),
         )
 
     def apply_parameters(
         self, params: CeilingClassicLampParameters, *, spawn_scope: bool = True
     ) -> None:
-        # NOTE: cable_radius does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
         with FixedSeed(params.seed):
             cable_radius = uniform(0.015, 0.02)
+            thickness = uniform(0.002, 0.006)
+            amount = randint(1, 8)
         self.params = {
             **params.model_dump(exclude={"seed"}, by_alias=True),
             "cable_radius": cable_radius,
+            "Thickness": thickness,
+            "Amount": amount,
         }
         self._use_fixed_spawn_draws = spawn_scope
 

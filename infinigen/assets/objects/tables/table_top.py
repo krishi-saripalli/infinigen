@@ -23,6 +23,7 @@ from infinigen.core.placement.parameters import (
     AssetParameters,
     ParameterizedAssetFactory,
 )
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.tagging import tag_nodegroup
 
 
@@ -323,9 +324,6 @@ class TableTopParameters(AssetParameters):
     thickness: Annotated[
         float, Field(ge=0.05, le=0.15, json_schema_extra={"editable": True})
     ]
-    vertical_fillet_ratio: Annotated[
-        float, Field(ge=0.0, le=0.4, json_schema_extra={"editable": True})
-    ]
 
 
 class TableTopFactory(ParameterizedAssetFactory, AssetFactory):
@@ -343,20 +341,20 @@ class TableTopFactory(ParameterizedAssetFactory, AssetFactory):
             profile_aspect_ratio=1.0,
             profile_fillet_ratio=0.2,
             thickness=0.1,
-            vertical_fillet_ratio=0.2,
         )
 
     def apply_parameters(
         self, params: TableTopParameters, *, spawn_scope: bool = True
     ) -> None:
-        # NOTE: profile_fillet_ratio visual effect depends on profile_n_gon (fillet invisible on low vertex counts); excluded from quartet sampling.
+        with FixedSeed(params.seed):
+            vertical_fillet_ratio = 0.2
         self.params = {
             "Profile N-gon": params.profile_n_gon,
             "Profile Width": params.profile_width,
             "Profile Aspect Ratio": params.profile_aspect_ratio,
             "Profile Fillet Ratio": params.profile_fillet_ratio,
             "Thickness": params.thickness,
-            "Vertical Fillet Ratio": params.vertical_fillet_ratio,
+            "Vertical Fillet Ratio": vertical_fillet_ratio,
         }
         self._use_fixed_spawn_draws = spawn_scope
 
