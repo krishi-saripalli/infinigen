@@ -63,9 +63,12 @@ class BananaMonocotParameters(AssetParameters):
     freq: Annotated[float, Field(ge=100.0, le=300.0, json_schema_extra={"editable": True})]
     n_cuts_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.8},
+        ),
     ] = 0.0
-    base_hue: Annotated[float, Field(ge=0.15, le=0.35, json_schema_extra={"editable": True})]
     leaf_prob: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": True})]
 
 class BananaMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -74,18 +77,22 @@ class BananaMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
     def __init__(self, factory_seed, coarse=False):
         AssetFactory.__init__(self, factory_seed, coarse)
         self.init_legacy_parameters()
-    def _sample_init_parameters(self, seed: int) -> BananaMonocotParameters:
-        base_hue = uniform(0.15, 0.35)
-        leaf_prob = uniform(0.8, 0.9)
-        bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
-        dark_color = hsv2rgba(
-            (base_hue + uniform(-0.03, 0.03)) % 1,
-            uniform(0.8, 1.0),
-            log_uniform(0.05, 0.2),
-        )
+    def _sample_material(self, seed: int) -> None:
+        with FixedSeed(seed):
+            base_hue = uniform(0.15, 0.35)
+            bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
+            dark_color = hsv2rgba(
+                (base_hue + uniform(-0.03, 0.03)) % 1,
+                uniform(0.8, 1.0),
+                log_uniform(0.05, 0.2),
+            )
         self.material = shaderfunc_to_material(
             self.shader_monocot, dark_color, bright_color, self.use_distance
         )
+
+    def _sample_init_parameters(self, seed: int) -> BananaMonocotParameters:
+        self._sample_material(seed)
+        leaf_prob = uniform(0.8, 0.9)
         bud_angle = uniform(np.pi / 8, np.pi / 6)
         return BananaMonocotParameters(
             seed=seed,
@@ -104,13 +111,13 @@ class BananaMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             cut_angle_offset=uniform(np.pi / 20, np.pi / 12),
             freq=log_uniform(100, 300),
             n_cuts_draw=0.0,
-            base_hue=base_hue,
             leaf_prob=leaf_prob,
         )
 
     def apply_parameters(
         self, params: BananaMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
+        self._sample_material(params.seed)
         self.stem_offset = params.stem_offset
         self.angle = params.angle
         self.z_scale = params.z_scale
@@ -130,7 +137,6 @@ class BananaMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             else int(np.random.randint(6, 10))
         )
         self.leaf_prob = params.leaf_prob
-        self.base_hue = params.base_hue
         self.bend_angle = np.pi / 4
         self.twist_angle = np.pi / 6
         self.perturb = 0.05

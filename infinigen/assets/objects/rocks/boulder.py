@@ -59,34 +59,29 @@ class BoulderParameters(AssetParameters):
     ] = True
     is_slab_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.8},
+        ),
     ] = 0.0
     scale_x: Annotated[
-        float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": False})
+        float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": True})
     ] = 1.0
     scale_y: Annotated[
-        float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": False})
+        float, Field(ge=0.4, le=2.0, json_schema_extra={"editable": True})
     ] = 1.0
     scale_z: Annotated[
-        float, Field(ge=0.1, le=0.8, json_schema_extra={"editable": False})
+        float, Field(ge=0.1, le=0.8, json_schema_extra={"editable": True})
     ] = 0.5
-    boulder_scale: Annotated[
-        float, Field(ge=0.5, le=2.0, json_schema_extra={"editable": False})
-    ] = 1.0
-    tilt_x: Annotated[
-        float, Field(ge=-0.1309, le=0.1309, json_schema_extra={"editable": False})
-    ] = 0.0
-    yaw_z: Annotated[
-        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
-    ] = 0.0
     voronoi_scale_1: Annotated[
-        float, Field(ge=0.2, le=0.5, json_schema_extra={"editable": False})
+        float, Field(ge=0.2, le=0.5, json_schema_extra={"editable": True})
     ] = 0.35
     voronoi_scale_2: Annotated[
-        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": False})
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})
     ] = 0.075
     extrude_scale: Annotated[
-        float, Field(ge=0.5, le=1.5, json_schema_extra={"editable": False})
+        float, Field(ge=0.5, le=1.5, json_schema_extra={"editable": True})
     ] = 1.0
 
 
@@ -129,9 +124,6 @@ class BoulderFactory(ParameterizedAssetFactory, AssetFactory):
                 "scale_x": scale_x,
                 "scale_y": scale_y,
                 "scale_z": scale_z,
-                "boulder_scale": log_uniform(0.5, 2.0),
-                "tilt_x": uniform(-np.pi / 24, np.pi / 24),
-                "yaw_z": uniform(0, np.pi * 2),
                 "voronoi_scale_1": log_uniform(0.2, 0.5),
                 "voronoi_scale_2": log_uniform(0.05, 0.1),
                 "extrude_scale": uniform(0.5, 1.5),
@@ -156,9 +148,10 @@ class BoulderFactory(ParameterizedAssetFactory, AssetFactory):
             self._scale_x = params.scale_x
             self._scale_y = params.scale_y
             self._scale_z = params.scale_z
-            self._boulder_scale = params.boulder_scale
-            self._tilt_x = params.tilt_x
-            self._yaw_z = params.yaw_z
+            with FixedSeed(params.seed):
+                self._boulder_scale = log_uniform(0.5, 2.0)
+                self._tilt_x = uniform(-np.pi / 24, np.pi / 24)
+                self._yaw_z = uniform(0, np.pi * 2)
             self._voronoi_scale_1 = params.voronoi_scale_1
             self._voronoi_scale_2 = params.voronoi_scale_2
             self._extrude_scale = params.extrude_scale

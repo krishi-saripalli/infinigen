@@ -33,26 +33,10 @@ from infinigen.core.util.random import log_uniform
 
 
 class BookParameters(AssetParameters):
-    skewness: Annotated[float, Field(ge=1.3, le=1.8, json_schema_extra={"editable": False})]
+    skewness: Annotated[float, Field(ge=1.3, le=1.8, json_schema_extra={"editable": True})]
     is_paperback: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = False
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     width: Annotated[
         float, Field(ge=0.08, le=0.15, json_schema_extra={"editable": True})
     ] = 0.1
@@ -79,14 +63,17 @@ class BookFactory(ParameterizedAssetFactory, AssetFactory):
             cover_surface = cover_surface(params.seed)
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        with FixedSeed(params.seed):
+            scratch_draw = uniform()
+            edge_wear_draw = uniform()
         scratch = (
             None
-            if params.scratch_draw > scratch_prob
+            if scratch_draw > scratch_prob
             else scratch_fn()
         )
         edge_wear = (
             None
-            if params.edge_wear_draw > edge_wear_prob
+            if edge_wear_draw > edge_wear_prob
             else edge_wear_fn()
         )
         return surface_material_gen, cover_surface, scratch, edge_wear
@@ -107,8 +94,6 @@ class BookFactory(ParameterizedAssetFactory, AssetFactory):
             seed=seed,
             skewness=log_uniform(1.3, 1.8),
             is_paperback=False,
-            scratch_draw=uniform(),
-            edge_wear_draw=uniform(),
             **self._sample_spawn_field_updates(),
         )
 

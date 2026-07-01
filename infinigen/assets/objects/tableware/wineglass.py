@@ -23,26 +23,11 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 class WineglassParameters(AssetParameters):
     z_length: Annotated[float, Field(ge=0.6, le=2.0, json_schema_extra={"editable": True})]
     z_cup: Annotated[float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})]
-    z_mid: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": True})]
+    z_mid: Annotated[float, Field(ge=0.3, le=0.5, json_schema_extra={"editable": False})]
     x_top: Annotated[float, Field(ge=1.0, le=1.4, json_schema_extra={"editable": True})]
-    x_mid: Annotated[float, Field(ge=0.9, le=1.2, json_schema_extra={"editable": True})]
+    x_mid: Annotated[float, Field(ge=0.9, le=1.2, json_schema_extra={"editable": False})]
     thickness: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": False})]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
+
 
 class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
     parameters_model: ClassVar[type[AssetParameters]] = WineglassParameters
@@ -61,12 +46,12 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
         self.guard_surface = base["guard_surface"]
         self.scratch = (
             None
-            if params.scratch_draw > scratch_prob
+            if base["scratch_draw"] > scratch_prob
             else base["scratch_fn"]()
         )
         self.edge_wear = (
             None
-            if params.edge_wear_draw > edge_wear_prob
+            if base["edge_wear_draw"] > edge_wear_prob
             else base["edge_wear_fn"]()
         )
         self.has_guard = False
@@ -81,7 +66,6 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
             return log_uniform(0.1, 0.3)
 
     def _sample_init_parameters(self, seed: int) -> WineglassParameters:
-        base = sample_tableware_base(seed)
         return WineglassParameters(
             seed=seed,
             z_length=log_uniform(0.6, 2.0),
@@ -90,8 +74,6 @@ class WineglassFactory(ParameterizedAssetFactory, TablewareFactory):
             x_top=log_uniform(1, 1.4),
             x_mid=log_uniform(0.9, 1.2),
             thickness=uniform(0.01, 0.03),
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
         )
 
     def apply_parameters(

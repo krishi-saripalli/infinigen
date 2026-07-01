@@ -30,9 +30,6 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class BaseDeformedTreeParameters(AssetParameters):
-    base_hue: Annotated[
-        float, Field(ge=0.02, le=0.08, json_schema_extra={"editable": True})
-    ]
     skinning_scale: Annotated[
         float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": True})
     ]
@@ -55,7 +52,6 @@ class BaseDeformedTreeFactory(ParameterizedAssetFactory, AssetFactory):
         self._trunk_surface = weighted_sample(material_assignments.bark)
         return BaseDeformedTreeParameters(
             seed=seed,
-            base_hue=uniform(0.02, 0.08),
             skinning_scale=uniform(0.15, 0.25),
             ring_wave_scale=uniform(10, 20),
             ring_distortion=uniform(4, 10),
@@ -66,7 +62,8 @@ class BaseDeformedTreeFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         if not hasattr(self, "_trunk_surface"):
             self._trunk_surface = weighted_sample(material_assignments.bark)
-        self.base_hue = params.base_hue
+        with FixedSeed(params.seed):
+            self.base_hue = uniform(0.02, 0.08)
         self.skinning_scale = params.skinning_scale
         self.ring_wave_scale = params.ring_wave_scale
         self.ring_distortion = params.ring_distortion

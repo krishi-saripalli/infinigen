@@ -39,35 +39,19 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 
 class CupParameters(AssetParameters):
-    thickness: Annotated[float, Field(ge=0.01, le=0.04, json_schema_extra={"editable": False})]
+    thickness: Annotated[float, Field(ge=0.01, le=0.04, json_schema_extra={"editable": True})]
     # NOTE: only applies when has_guard=True.
     handle_taper_x: Annotated[float, Field(ge=0.0, le=2.0, json_schema_extra={"editable": False})]
     # NOTE: only applies when has_guard=True.
     handle_taper_y: Annotated[float, Field(ge=0.0, le=2.0, json_schema_extra={"editable": False})]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     is_short: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = True
     has_guard: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
     is_profile_straight: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
     handle_type: Annotated[
         str,
@@ -90,7 +74,7 @@ class CupParameters(AssetParameters):
         float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})
     ]
     handle_angle: Annotated[
-        float, Field(ge=0.009733, le=0.544872, json_schema_extra={"editable": True})
+        float, Field(ge=0.009733, le=0.544872, json_schema_extra={"editable": False})
     ] = 0.2
 
 
@@ -125,7 +109,6 @@ class CupFactory(ParameterizedAssetFactory, TablewareFactory):
         self.has_wrap = True
 
     def _sample_init_parameters(self, seed: int) -> CupParameters:
-        base = sample_tableware_base(seed)
         self._init_tableware_base()
         is_short = True
         with FixedSeed(seed):
@@ -152,8 +135,6 @@ class CupFactory(ParameterizedAssetFactory, TablewareFactory):
             thickness=log_uniform(0.01, 0.04),
             handle_taper_x=uniform(0, 2),
             handle_taper_y=uniform(0, 2),
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
             is_short=is_short,
             has_guard=has_guard,
             is_profile_straight=is_profile_straight,
@@ -191,8 +172,6 @@ class CupFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=self._lower_thresh,
             scale=self.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             has_inside=self.has_inside,
         )
         self._sample_wrap_surface(params.seed)

@@ -157,32 +157,29 @@ class GlobularCactusParameters(CactusParameters):
     generate_59: Annotated[
         float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": False})
     ] = 0.125
-    globular_83: Annotated[
-        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
-    ] = 0.0
     anchors: Annotated[
-        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})
+        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
     ] = 0.3
     circle: Annotated[
-        float, Field(ge=1.1, le=1.2, json_schema_extra={"editable": False})
+        float, Field(ge=1.1, le=1.2, json_schema_extra={"editable": True})
     ] = 1.15
     frequency: Annotated[
-        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
+        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": True})
     ] = 0.0
     radius: Annotated[
-        float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": False})
+        float, Field(ge=0.5, le=1.0, json_schema_extra={"editable": True})
     ] = 0.75
     star_resolution: Annotated[
-        int, Field(ge=6, le=11, json_schema_extra={"editable": False})
+        int, Field(ge=6, le=11, json_schema_extra={"editable": True})
     ] = 8
     scale_x: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
     ] = 1.0
     scale_y: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
     ] = 1.0
     scale_z: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
+        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
     ] = 1.0
 
 
@@ -200,7 +197,6 @@ class GlobularCactusFactory(CactusFactory):
         return params.model_copy(
             update={
                 "generate_59": log_uniform(0.1, 0.15),
-                "globular_83": uniform(0.0, np.pi * 2),
                 "anchors": uniform(0.2, 0.4),
                 "circle": uniform(1.1, 1.2),
                 "frequency": uniform(-0.2, 0.2),
@@ -218,6 +214,8 @@ class GlobularCactusFactory(CactusFactory):
         super().apply_parameters(params, spawn_scope=spawn_scope)
         if spawn_scope:
             self._globular_params = params
+            with FixedSeed(params.seed):
+                self._globular_rotation_z = uniform(0, np.pi * 2)
 
     def create_asset(self, face_size=0.01, realize=True, **params):
         obj = self._create_globular_mesh()
@@ -268,7 +266,11 @@ class GlobularCactusFactory(CactusFactory):
         circle_scale = p.circle if p is not None else uniform(1.1, 1.2)
         anchors_y = p.anchors if p is not None else uniform(0.2, 0.4)
         radius_scale = p.radius if p is not None else log_uniform(0.5, 1.0)
-        rotation_z = p.globular_83 if p is not None else uniform(0, np.pi * 2)
+        rotation_z = (
+            self._globular_rotation_z
+            if p is not None
+            else uniform(0, np.pi * 2)
+        )
         scale = (
             (p.scale_x, p.scale_y, p.scale_z)
             if p is not None

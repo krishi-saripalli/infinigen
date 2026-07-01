@@ -33,16 +33,6 @@ class WallArtParameters(AssetParameters):
     thickness: Annotated[
         float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": False})
     ]
-    frame_bevel_segments: Annotated[
-        int,
-        Field(
-            json_schema_extra={
-                "editable": False,
-                "kind": "enum",
-                "choices": [0, 1, 4],
-            }
-        ),
-    ] = 1
 
 
 class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
@@ -86,7 +76,6 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
             width=log_uniform(0.4, 2),
             height=log_uniform(0.4, 2),
             thickness=uniform(0.02, 0.05),
-            frame_bevel_segments=1,
         )
         self._apply_internal_state(params)
         return params
@@ -102,8 +91,8 @@ class WallArtFactory(ParameterizedAssetFactory, AssetFactory):
         with FixedSeed(params.seed):
             self.depth = uniform(0.01, 0.02)
             self.frame_bevel_width = uniform(self.depth / 4, self.depth / 2)
+            self.frame_bevel_segments = 1
         self._apply_internal_state(params)
-        self.frame_bevel_segments = params.frame_bevel_segments
         self._use_fixed_spawn_draws = spawn_scope
 
     def assign_materials(self):
@@ -164,7 +153,7 @@ class MirrorParameters(AssetParameters):
         int,
         Field(
             json_schema_extra={
-                "editable": False,
+                "editable": True,
                 "kind": "enum",
                 "choices": [0, 1, 4],
             }

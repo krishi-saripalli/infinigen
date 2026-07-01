@@ -72,22 +72,6 @@ class ToiletParameters(AssetParameters):
             }
         ),
     ]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     flush_control: Annotated[
         str,
         Field(
@@ -137,8 +121,6 @@ class ToiletFactory(ParameterizedAssetFactory, AssetFactory):
             hardware_cap=uniform(0.01, 0.015),
             hardware_length=uniform(0.04, 0.05),
             hardware_on_side=bool(uniform() < 0.5),
-            scratch_draw=uniform(),
-            edge_wear_draw=uniform(),
             flush_control=str(np.random.choice(["button", "handle"])),
         )
 

@@ -49,12 +49,7 @@ class MolluskParameters(AssetParameters):
 
 
 class MusselParameters(MolluskParameters):
-    accent_hue: Annotated[
-        float, Field(ge=0.05, le=0.12, json_schema_extra={"editable": False})
-    ]
-    z_scale: Annotated[float, Field(ge=2.0, le=10.0, json_schema_extra={"editable": False})] = (
-        5.0
-    )
+    pass
 
 
 class MolluskFactory(ParameterizedAssetFactory, AssetFactory):
@@ -277,11 +272,7 @@ class MusselFactory(MolluskFactory):
             factory.distortion,
         )
         self._texture_type_draw = texture_type_draw
-        return MusselParameters(
-            seed=seed,
-            accent_hue=accent_hue,
-            z_scale=factory.z_scale,
-        )
+        return MusselParameters(seed=seed)
 
     def apply_parameters(
         self, params: MusselParameters, *, spawn_scope: bool = True
@@ -289,9 +280,10 @@ class MusselFactory(MolluskFactory):
         with FixedSeed(params.seed):
             factory_method = self._resolve_factory_method(self._init_factory_method)
             self.factory = self._build_factory(factory_method, params.seed)
-            base_hue = self._sample_base_hue(params.accent_hue)
+            accent_hue = uniform(0.05, 0.12)
+            self.factory.z_scale = log_uniform(2, 10)
+            base_hue = self._sample_base_hue(accent_hue)
             self._texture_type_draw = uniform()
-        self.factory.z_scale = params.z_scale
         self.base_hue = base_hue
         self.material = surface.shaderfunc_to_material(
             self.shader_mollusk,
@@ -301,7 +293,6 @@ class MusselFactory(MolluskFactory):
             self.factory.z_scale,
             self.factory.distortion,
         )
-        # NOTE: noise_scale and mussel shell profile params resampled in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
         with FixedSeed(params.seed):
             self._noise_scale = log_uniform(0.1, 0.2)
             self._shell_open_angle = uniform(np.pi / 6, np.pi / 3)

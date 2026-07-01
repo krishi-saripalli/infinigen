@@ -1973,7 +1973,7 @@ class CabinetBaseFactory(AssetFactory):
 
 class CabinetParameters(AssetParameters):
     dimension_depth: Annotated[
-        float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": False})
+        float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": True})
     ]
     dimension_width: Annotated[
         float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})

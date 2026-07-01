@@ -27,6 +27,7 @@ from infinigen.core.placement.parameters import (
     ParameterizedAssetFactory,
 )
 from infinigen.core.tagging import tag_nodegroup, tag_object
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -1084,18 +1085,7 @@ class DandelionFactory(ParameterizedAssetFactory, AssetFactory):
 
 
 class DandelionSeedParameters(AssetParameters):
-    overall_scale: Annotated[
-        float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": False})
-    ] = 1.0
-    rotation_z: Annotated[
-        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
-    ] = 0.0
-    x_tilt: Annotated[
-        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
-    ] = 0.0
-    y_tilt: Annotated[
-        float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
-    ] = 0.0
+    pass
 
 
 class DandelionSeedFactory(ParameterizedAssetFactory, AssetFactory):
@@ -1111,22 +1101,16 @@ class DandelionSeedFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_spawn_parameters(
         self, params: DandelionSeedParameters, seed: int, i: int
     ) -> DandelionSeedParameters:
-        return params.model_copy(
-            update={
-                "overall_scale": uniform(0.7, 1.3),
-                "rotation_z": uniform(0.0, 6.283185),
-                "x_tilt": uniform(-0.2, 0.2),
-                "y_tilt": uniform(-0.2, 0.2),
-            }
-        )
+        return params
 
     def apply_parameters(
         self, params: DandelionSeedParameters, *, spawn_scope: bool = True
     ) -> None:
-        self.overall_scale = params.overall_scale
-        self.rotation_z = params.rotation_z
-        self.x_tilt = params.x_tilt
-        self.y_tilt = params.y_tilt
+        with FixedSeed(params.seed):
+            self.overall_scale = uniform(0.7, 1.3)
+            self.rotation_z = uniform(0.0, 6.283185)
+            self.x_tilt = uniform(-0.2, 0.2)
+            self.y_tilt = uniform(-0.2, 0.2)
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_asset(self, **params):

@@ -380,10 +380,10 @@ class KitchenIslandParameters(AssetParameters):
     dimension_x: Annotated[float, Field(ge=0.7, le=1.0, json_schema_extra={"editable": False})]
     dimension_y: Annotated[float, Field(ge=1.7, le=5.0, json_schema_extra={"editable": True})]
     cabinet_bottom_height: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})
+        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
     ]
     kitchen_space_211: Annotated[
-        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": False})
+        float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})
     ]
     dimension_z: Annotated[float, Field(ge=2.3, le=2.5, json_schema_extra={"editable": False})]
     cabinet_top_height: Annotated[

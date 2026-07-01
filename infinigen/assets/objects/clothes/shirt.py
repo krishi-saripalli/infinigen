@@ -36,7 +36,7 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 class ShirtParameters(AssetParameters):
     sleeve_angle: Annotated[
-        float, Field(ge=0.523599, le=0.785398, json_schema_extra={"editable": False})
+        float, Field(ge=0.523599, le=0.785398, json_schema_extra={"editable": True})
     ]
     y_anchors: Annotated[float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": False})] = (
         0.5

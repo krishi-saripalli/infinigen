@@ -33,27 +33,11 @@ class LidParameters(AssetParameters):
     is_glass: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = True
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     handle_type: Annotated[
         str,
         Field(
             json_schema_extra={
-                "editable": False,
+                "editable": True,
                 "kind": "enum",
                 "choices": ["handle", "knob"],
             }
@@ -89,10 +73,18 @@ class LidFactory(ParameterizedAssetFactory, AssetFactory):
             seed=seed,
             z_height_ratio=uniform(0, 0.5),
             is_glass=is_glass,
-            scratch_draw=uniform(),
-            edge_wear_draw=uniform(),
             handle_type=handle_type,
         )
+
+    def _resolve_wear(self, seed: int) -> tuple[object | None, object | None]:
+        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
+        scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        with FixedSeed(seed):
+            scratch_draw = uniform()
+            edge_wear_draw = uniform()
+        scratch = None if scratch_draw > scratch_prob else scratch_fn()
+        edge_wear = None if edge_wear_draw > edge_wear_prob else edge_wear_fn()
+        return scratch, edge_wear
 
     def apply_parameters(
         self, params: LidParameters, *, spawn_scope: bool = True
@@ -100,10 +92,7 @@ class LidFactory(ParameterizedAssetFactory, AssetFactory):
         is_glass = params.is_glass
         self._sample_materials(params.seed, is_glass)
         self.handle_type = params.handle_type
-        scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
-        scratch_fn, edge_wear_fn = material_assignments.wear_tear
-        self.scratch = None if params.scratch_draw > scratch_prob else scratch_fn()
-        self.edge_wear = None if params.edge_wear_draw > edge_wear_prob else edge_wear_fn()
+        self.scratch, self.edge_wear = self._resolve_wear(params.seed)
         with FixedSeed(params.seed):
             self.x_length = uniform(0.08, 0.15)
             self.thickness = uniform(0.003, 0.005)

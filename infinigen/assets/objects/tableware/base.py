@@ -57,8 +57,6 @@ def apply_tableware_base(factory: "TablewareFactory", params: Any) -> None:
         seed=params.seed,
         lower_thresh=params.lower_thresh,
         scale=params.scale,
-        scratch_draw=params.scratch_draw,
-        edge_wear_draw=params.edge_wear_draw,
         has_guard=getattr(params, "has_guard", False),
         has_inside=getattr(params, "has_inside", None),
         guard_depth=getattr(params, "guard_depth", None),
@@ -78,8 +76,6 @@ def apply_tableware_from_draws(
     seed: int,
     lower_thresh: float,
     scale: float,
-    scratch_draw: float,
-    edge_wear_draw: float,
     has_guard: bool = False,
     has_inside: bool | None = None,
     guard_depth: float | None = None,
@@ -91,10 +87,14 @@ def apply_tableware_from_draws(
     factory.inside_surface = base["inside_surface"]
     factory.guard_surface = base["guard_surface"]
     factory.scratch = (
-        None if scratch_draw > base["scratch_prob"] else base["scratch_fn"]()
+        None
+        if base["scratch_draw"] > base["scratch_prob"]
+        else base["scratch_fn"]()
     )
     factory.edge_wear = (
-        None if edge_wear_draw > base["edge_wear_prob"] else base["edge_wear_fn"]()
+        None
+        if base["edge_wear_draw"] > base["edge_wear_prob"]
+        else base["edge_wear_fn"]()
     )
     factory.guard_depth = base["thickness"] if guard_depth is None else guard_depth
     factory.has_guard = has_guard

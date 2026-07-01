@@ -35,25 +35,6 @@ class SpoonParameters(AssetParameters):
     guard_depth_mult: Annotated[
         float, Field(ge=0.2, le=1.0, json_schema_extra={"editable": False})
     ]
-    has_guard: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = True
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
 
 
 class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
@@ -66,7 +47,6 @@ class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> SpoonParameters:
-        base = sample_tableware_base(seed)
         thickness = log_uniform(0.008, 0.015)
         return SpoonParameters(
             seed=seed,
@@ -74,9 +54,6 @@ class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
             y_length=log_uniform(0.06, 0.12),
             thickness=thickness,
             guard_depth_mult=log_uniform(0.2, 1.0),
-            has_guard=True,
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
         )
 
     def apply_parameters(
@@ -102,8 +79,6 @@ class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=self._lower_thresh,
             scale=self.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             guard_depth=params.guard_depth_mult * params.thickness,
         )
         self.x_length = params.x_length
@@ -112,7 +87,7 @@ class SpoonFactory(ParameterizedAssetFactory, TablewareFactory):
             self.z_depth = log_uniform(0.08, 0.25)
             self.z_offset = uniform(0.0, 0.05)
         self.thickness = params.thickness
-        self.has_guard = params.has_guard
+        self.has_guard = True
         with FixedSeed(params.seed):
             self.guard_type = "round" if uniform(0, 1) < 0.6 else "double"
         self.guard_depth = params.guard_depth_mult * params.thickness

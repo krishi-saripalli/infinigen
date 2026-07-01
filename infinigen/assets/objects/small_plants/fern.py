@@ -1369,15 +1369,12 @@ def geo_fern(nw: NodeWrangler, **kwargs):
 
 
 class FernParameters(AssetParameters):
-    include_young_foliage: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = False
     young_and_grownup_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
+        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
     ] = 0.0
     pinnae_num: Annotated[
-        int, Field(ge=12, le=30, json_schema_extra={"editable": False})
+        int, Field(ge=12, le=30, json_schema_extra={"editable": True})
     ] = 12
     leaf_seed: Annotated[
         int, Field(ge=0, le=1000, json_schema_extra={"editable": False})
@@ -1401,7 +1398,6 @@ class FernFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> FernParameters:
         return params.model_copy(
             update={
-                "include_young_foliage": params.include_young_foliage,
                 "young_and_grownup_draw": uniform(),
                 "pinnae_num": int(randint(12, 30, size=(1,))[0]),
                 "leaf_seed": int(randint(0, 1000, size=(1,))[0]),

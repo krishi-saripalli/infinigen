@@ -35,14 +35,8 @@ from infinigen.core.util.random import log_uniform, weighted_sample
 
 class BathroomSinkParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})]
-    size_ratio: Annotated[float, Field(ge=0.55, le=0.8, json_schema_extra={"editable": False})]
-    depth_ratio: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})]
-    has_curve: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = False
-    has_legs: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = False
+    size_ratio: Annotated[float, Field(ge=0.55, le=0.8, json_schema_extra={"editable": True})]
+    depth_ratio: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
     is_stand_circular: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = False
@@ -56,16 +50,6 @@ class BathroomSinkParameters(AssetParameters):
             }
         ),
     ] = "undermount"
-    bathtub_type: Annotated[
-        str,
-        Field(
-            json_schema_extra={
-                "editable": False,
-                "kind": "enum",
-                "choices": ["alcove", "freestanding"],
-            }
-        ),
-    ] = "alcove"
 
 
 def _init_bathroom_sink_state(
@@ -110,7 +94,6 @@ def _init_bathroom_sink_state(
         inst.side_levels = 2
         inst.is_hole_centered = True
         inst.sink_types = params.sink_types
-        inst.bathtub_type = params.bathtub_type
         inst.has_extrude = True
         inst.has_stand = False
         match inst.sink_types:
@@ -160,33 +143,21 @@ class BathroomSinkFactory(BathtubFactory):
             sink_types = str(
                 np.random.choice(["undermount", "drop-in", "vessel"])
             )
-            if sink_types == "undermount":
-                bathtub_type = "freestanding"
-            elif sink_types == "drop-in":
-                bathtub_type = "alcove"
-            else:
-                bathtub_type = str(np.random.choice(["alcove", "freestanding"]))
         return BathroomSinkParameters(
             seed=seed,
             width=uniform(0.6, 0.9),
             size_ratio=log_uniform(0.55, 0.8),
             depth_ratio=log_uniform(0.2, 0.4),
-            has_curve=bool(uniform() < 0.5),
-            has_legs=bool(uniform() < 0.5),
             is_stand_circular=bool(uniform() < 0.5),
             sink_types=sink_types,
-            bathtub_type=bathtub_type,
         )
 
     def apply_parameters(
         self, params: BathroomSinkParameters, *, spawn_scope: bool = True
     ) -> None:
         _init_bathroom_sink_state(self, params.seed, params)
-        self.has_curve = params.has_curve
-        self.has_legs = params.has_legs
         self.is_stand_circular = params.is_stand_circular
         self.sink_types = params.sink_types
-        self.bathtub_type = params.bathtub_type
         self._use_fixed_spawn_draws = spawn_scope
 
     def create_placeholder(self, **kwargs) -> bpy.types.Object:
@@ -311,8 +282,6 @@ class StandingSinkFactory(BathroomSinkFactory):
         self.bathtub_type = "freestanding"
         self.has_extrude = True
         self.has_stand = True
-        self.has_curve = params.has_curve
-        self.has_legs = params.has_legs
         self.is_stand_circular = params.is_stand_circular
         self.sink_types = params.sink_types
         self._use_fixed_spawn_draws = spawn_scope

@@ -1528,19 +1528,16 @@ class CellShelfBaseFactory(AssetFactory):
 
 class CellShelfParameters(AssetParameters):
     dimension_0: Annotated[
-        float, Field(ge=0.3, le=0.45, json_schema_extra={"editable": False})
+        float, Field(ge=0.3, le=0.45, json_schema_extra={"editable": True})
     ]
     dimension_1: Annotated[
         float, Field(ge=0.7, le=2.1, json_schema_extra={"editable": True})
     ]
     dimension_2: Annotated[
-        float, Field(ge=0.35, le=2.1, json_schema_extra={"editable": False})
+        float, Field(ge=0.35, le=2.1, json_schema_extra={"editable": True})
     ]
     has_base_frame: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
-    ] = False
-    has_backboard: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = False
 
 
@@ -1615,7 +1612,7 @@ class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
             partial["wood_material"] = np.random.choice(
                 ["black_wood", "white", "wood"], p=[0.3, 0.2, 0.5]
             )
-        partial["has_backboard"] = params.has_backboard
+            partial["has_backboard"] = False
         partial["tag_support"] = True
         return self.get_material_func(partial, randomness=True)
 
@@ -1629,7 +1626,6 @@ class CellShelfFactory(ParameterizedAssetFactory, CellShelfBaseFactory):
             dimension_1=partial["Dimensions"][1],
             dimension_2=partial["Dimensions"][2],
             has_base_frame=has_base_frame,
-            has_backboard=False,
         )
 
     def apply_parameters(

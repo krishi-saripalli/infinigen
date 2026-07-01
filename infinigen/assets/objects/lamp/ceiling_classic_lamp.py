@@ -415,7 +415,7 @@ class CeilingClassicLampParameters(AssetParameters):
     cable_length: Annotated[
         float, Field(ge=0.6, le=0.71, json_schema_extra={"editable": True})
     ]
-    height: Annotated[float, Field(ge=0.4, le=0.71, json_schema_extra={"editable": False})]
+    height: Annotated[float, Field(ge=0.4, le=0.71, json_schema_extra={"editable": True})]
     top_radius: Annotated[
         float, Field(ge=0.05, le=0.2, json_schema_extra={"editable": True})
     ]

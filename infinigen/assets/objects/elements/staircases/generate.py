@@ -37,11 +37,12 @@ _STAIRCASE_CUMPROBS = np.cumsum(_STAIRCASE_PROBS) / _STAIRCASE_PROBS.sum()
 
 
 class StaircaseParameters(AssetParameters):
+    # NOTE: selects door factory type; geometry only changes when sweep crosses factory boundary.
     staircase_type_draw: Annotated[
         str,
         Field(
             json_schema_extra={
-                "editable": True,
+                "editable": False,
                 "kind": "enum",
                 "choices": [
                     "straight",

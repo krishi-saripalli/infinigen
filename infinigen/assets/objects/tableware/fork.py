@@ -31,32 +31,13 @@ from infinigen.core.util.random import log_uniform
 
 class ForkParameters(AssetParameters):
     # NOTE: tine layout branches on standard_tines/n_cuts sampled at init.
-    x_tip: Annotated[float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": False})]
-    y_length: Annotated[float, Field(ge=0.05, le=0.08, json_schema_extra={"editable": False})]
-    z_depth: Annotated[float, Field(ge=0.02, le=0.04, json_schema_extra={"editable": False})]
-    thickness: Annotated[float, Field(ge=0.008, le=0.015, json_schema_extra={"editable": False})]
+    x_tip: Annotated[float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": True})]
+    y_length: Annotated[float, Field(ge=0.05, le=0.08, json_schema_extra={"editable": True})]
+    z_depth: Annotated[float, Field(ge=0.02, le=0.04, json_schema_extra={"editable": True})]
+    thickness: Annotated[float, Field(ge=0.008, le=0.015, json_schema_extra={"editable": True})]
     # NOTE: guard depth only applied when guard_type=double (sampled branch).
     guard_depth_mult: Annotated[
         float, Field(ge=0.2, le=1.0, json_schema_extra={"editable": False})
-    ]
-    has_guard: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = True
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
     ]
     standard_tines: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
@@ -77,7 +58,6 @@ class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
             self.has_cut = True
 
     def _sample_init_parameters(self, seed: int) -> ForkParameters:
-        base = sample_tableware_base(seed)
         thickness = log_uniform(0.008, 0.015)
         self._sample_branch_state(seed)
         standard_tines = bool(uniform() >= 0.3)
@@ -88,9 +68,6 @@ class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
             z_depth=log_uniform(0.02, 0.04),
             thickness=thickness,
             guard_depth_mult=log_uniform(0.2, 1.0),
-            has_guard=True,
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
             standard_tines=standard_tines,
         )
 
@@ -120,8 +97,6 @@ class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=self._lower_thresh,
             scale=self.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             guard_depth=params.guard_depth_mult * params.thickness,
         )
         self._sample_branch_state(params.seed)
@@ -133,7 +108,7 @@ class ForkFactory(ParameterizedAssetFactory, TablewareFactory):
         self.y_length = params.y_length
         self.z_depth = params.z_depth
         self.thickness = params.thickness
-        self.has_guard = params.has_guard
+        self.has_guard = True
         # NOTE: guard_type does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
         with FixedSeed(params.seed):
             self.guard_type = "round" if uniform(0, 1) < 0.6 else "double"

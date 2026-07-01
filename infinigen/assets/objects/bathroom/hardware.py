@@ -37,43 +37,6 @@ class HardwareParameters(AssetParameters):
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
     hook_length: Annotated[float, Field(ge=2.0, le=4.0, json_schema_extra={"editable": True})]
-    holder_length: Annotated[
-        float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": False})
-    ]
-    bar_length: Annotated[float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": False})]
-    extension_length: Annotated[
-        float, Field(ge=2.0, le=3.0, json_schema_extra={"editable": False})
-    ]
-    ring_radius: Annotated[float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": False})]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    ring_minor_scale: Annotated[
-        float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})
-    ] = 0.55
-    hardware_type: Annotated[
-        str,
-        Field(
-            json_schema_extra={
-                "editable": False,
-                "kind": "enum",
-                "choices": ["hook", "holder", "bar", "ring"],
-            }
-        ),
-    ] = "hook"
 
 
 class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
@@ -102,22 +65,23 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             surface_material_gen = weighted_sample(material_assignments.metal_neutral)()
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        with FixedSeed(params.seed):
+            scratch_draw = uniform()
+            edge_wear_draw = uniform()
         scratch = (
             None
-            if params.scratch_draw > scratch_prob
+            if scratch_draw > scratch_prob
             else scratch_fn()
         )
         edge_wear = (
             None
-            if params.edge_wear_draw > edge_wear_prob
+            if edge_wear_draw > edge_wear_prob
             else edge_wear_fn()
         )
         return surface_material_gen, scratch, edge_wear
 
     def _sample_init_parameters(self, seed: int) -> HardwareParameters:
         attachment_radius = uniform(0.02, 0.03)
-        scratch_draw = uniform()
-        edge_wear_draw = uniform()
         return HardwareParameters(
             seed=seed,
             attachment_radius=attachment_radius,
@@ -126,19 +90,14 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
             depth=uniform(0.06, 0.1),
             is_circular=bool(uniform() < 0.5),
             hook_length=uniform(2, 4),
-            holder_length=uniform(0.15, 0.25),
-            bar_length=uniform(0.4, 0.8),
-            extension_length=uniform(2, 3),
-            ring_radius=log_uniform(2, 6),
-            scratch_draw=scratch_draw,
-            edge_wear_draw=edge_wear_draw,
-            hardware_type="hook",
         )
 
     def _sample_spawn_parameters(
         self, params: HardwareParameters, seed: int, i: int
     ) -> HardwareParameters:
-        return params.model_copy(update={"ring_minor_scale": uniform(0.4, 0.7)})
+        with FixedSeed(seed):
+            self.ring_minor_scale = uniform(0.4, 0.7)
+        return params
 
     def apply_parameters(
         self, params: HardwareParameters, *, spawn_scope: bool = True
@@ -149,13 +108,15 @@ class HardwareFactory(ParameterizedAssetFactory, AssetFactory):
         self.radius = params.radius
         self.depth = params.depth
         self.is_circular = params.is_circular
-        self.hardware_type = params.hardware_type
+        self.hardware_type = "hook"
         self.hook_length = params.attachment_radius * params.hook_length
-        self.holder_length = params.holder_length
-        self.bar_length = params.bar_length
-        self.extension_length = params.attachment_radius * params.extension_length
-        self.ring_radius = params.ring_radius * params.attachment_radius
-        self.ring_minor_scale = params.ring_minor_scale
+        with FixedSeed(params.seed):
+            self.holder_length = uniform(0.15, 0.25)
+            self.bar_length = uniform(0.4, 0.8)
+            self.extension_length = params.attachment_radius * uniform(2, 3)
+            self.ring_radius = log_uniform(2, 6) * params.attachment_radius
+            if not spawn_scope or not hasattr(self, "ring_minor_scale"):
+                self.ring_minor_scale = uniform(0.4, 0.7)
         self.surface_material_gen = surface_material_gen
         self.scratch = scratch
         self.edge_wear = edge_wear

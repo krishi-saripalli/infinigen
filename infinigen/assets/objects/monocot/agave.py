@@ -22,6 +22,7 @@ from infinigen.core.surface import shaderfunc_to_material
 from infinigen.core.tagging import tag_object
 from infinigen.core.util.blender import deep_clone_obj
 from infinigen.core.util.color import hsv2rgba
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import log_uniform
 
 
@@ -54,7 +55,6 @@ class AgaveMonocotParameters(AssetParameters):
     )
     leaf_prob: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": True})]
     z_scale: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
-    base_hue: Annotated[float, Field(ge=0.12, le=0.32, json_schema_extra={"editable": True})]
 
 
 class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
@@ -65,21 +65,25 @@ class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         super(AgaveMonocotFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
+    def _sample_material(self, seed: int) -> None:
+        with FixedSeed(seed):
+            base_hue = uniform(0.12, 0.32)
+            bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
+            dark_color = hsv2rgba(
+                (base_hue + uniform(-0.03, 0.03)) % 1,
+                uniform(0.8, 1.0),
+                log_uniform(0.05, 0.2),
+            )
+        self.material = shaderfunc_to_material(
+            self.shader_monocot, dark_color, bright_color, self.use_distance
+        )
+
     def _sample_init_parameters(self, seed: int) -> AgaveMonocotParameters:
-        base_hue = uniform(0.12, 0.32)
+        self._sample_material(seed)
         cut_draw = uniform(0, 1)
         cut_prob = 0 if cut_draw < 0.5 else uniform(0.2, 0.4)
         leaf_prob = uniform(0.8, 0.9)
         z_scale = uniform(1.0, 1.2)
-        bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
-        dark_color = hsv2rgba(
-            (base_hue + uniform(-0.03, 0.03)) % 1,
-            uniform(0.8, 1.0),
-            log_uniform(0.05, 0.2),
-        )
-        self.material = shaderfunc_to_material(
-            self.shader_monocot, dark_color, bright_color, self.use_distance
-        )
         return AgaveMonocotParameters(
             seed=seed,
             stem_offset=uniform(0.0, 0.5),
@@ -95,12 +99,12 @@ class AgaveMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             cut_prob=cut_prob,
             leaf_prob=leaf_prob,
             z_scale=z_scale,
-            base_hue=base_hue,
         )
 
     def apply_parameters(
         self, params: AgaveMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
+        self._sample_material(params.seed)
         self.stem_offset = params.stem_offset
         self.angle = params.angle
         self.z_drag = params.z_drag

@@ -60,36 +60,17 @@ def geometry_assemble_chair(nw: NodeWrangler, **kwargs):
 class BarChairParameters(AssetParameters):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
-    top_profile_width: Annotated[
-        float,
-        Field(
-            ge=0.35,
-            le=0.45,
-            alias="Top Profile Width",
-            json_schema_extra={"editable": True},
-        ),
-    ]
-    # NOTE: effect depends on sampled leg style.
     top_thickness: Annotated[
         float,
         Field(
             ge=0.06,
             le=0.10,
             alias="Top Thickness",
-            json_schema_extra={"editable": False},
+            json_schema_extra={"editable": True},
         ),
     ]
     height: Annotated[
         float, Field(ge=0.7, le=1.0, alias="Height", json_schema_extra={"editable": True})
-    ]
-    leg_placement_bottom_relative_scale: Annotated[
-        float,
-        Field(
-            ge=1.1,
-            le=1.3,
-            alias="Leg Placement Bottom Relative Scale",
-            json_schema_extra={"editable": True},
-        ),
     ]
 
 

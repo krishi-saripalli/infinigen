@@ -57,7 +57,11 @@ class GrassesMonocotParameters(AssetParameters):
     leaf_prob: Annotated[float, Field(ge=0.8, le=0.9, json_schema_extra={"editable": False})]
     cut_prob_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool", "threshold": 0.4},
+        ),
     ] = 0.0
     trim_leaf: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})

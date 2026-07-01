@@ -29,7 +29,7 @@ class MossParameters(AssetParameters):
     shader_hue_offset: Annotated[
         float, Field(ge=-0.02, le=0.02, json_schema_extra={"editable": False})
     ] = 0.0
-    end_z: Annotated[float, Field(ge=0.04, le=0.05, json_schema_extra={"editable": False})] = (
+    end_z: Annotated[float, Field(ge=0.04, le=0.05, json_schema_extra={"editable": True})] = (
         0.045
     )
 

@@ -74,17 +74,14 @@ class GlowingRocksParameters(AssetParameters):
         float, Field(ge=-3.141593, le=3.141593, json_schema_extra={"editable": False})
     ] = 0.0
     scale_x: Annotated[
-        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": False})
+        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": True})
     ] = 0.5
     scale_y: Annotated[
-        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": False})
+        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": True})
     ] = 0.5
     scale_z: Annotated[
-        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": False})
+        float, Field(ge=0.35, le=0.75, json_schema_extra={"editable": True})
     ] = 0.5
-    light_energy: Annotated[
-        float, Field(ge=400.0, le=800.0, json_schema_extra={"editable": False})
-    ] = 600.0
     rock_choice_draw: Annotated[
         int,
         Field(
@@ -131,7 +128,6 @@ class GlowingRocksFactory(ParameterizedAssetFactory, AssetFactory):
                 "scale_x": uniform(0.35, 0.75),
                 "scale_y": uniform(0.35, 0.75),
                 "scale_z": uniform(0.35, 0.75),
-                "light_energy": uniform(*self._watt_power_range),
                 "rock_choice_draw": int(np.random.randint(0, 5)),
             }
         )
@@ -149,7 +145,8 @@ class GlowingRocksFactory(ParameterizedAssetFactory, AssetFactory):
             self._scale_x = params.scale_x
             self._scale_y = params.scale_y
             self._scale_z = params.scale_z
-            self._light_energy = params.light_energy
+            with FixedSeed(params.seed):
+                self._light_energy = uniform(*self._watt_power_range)
             self._rock_choice_draw = params.rock_choice_draw
 
 

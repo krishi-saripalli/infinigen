@@ -23,6 +23,7 @@ from infinigen.core.placement.parameters import (
 )
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.random import random_general as rg
 
 from .cloud import (
@@ -37,9 +38,6 @@ from .cloud import (
 class CloudParameters(AssetParameters):
     cloud_type_draw: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
-    ] = 0.0
-    anisotropy: Annotated[
-        float, Field(ge=-0.5, le=0.5, json_schema_extra={"editable": False})
     ] = 0.0
     first_pt_x: Annotated[
         float, Field(ge=-0.95, le=-0.5, json_schema_extra={"editable": False})
@@ -60,13 +58,13 @@ class CloudParameters(AssetParameters):
         float, Field(ge=0.0, le=0.785398, json_schema_extra={"editable": False})
     ] = 0.0
     scale_x: Annotated[
-        float, Field(ge=28.818331, le=1024.0, json_schema_extra={"editable": False})
+        float, Field(ge=28.818331, le=1024.0, json_schema_extra={"editable": True})
     ] = 46.0
     scale_y: Annotated[
-        float, Field(ge=0.5, le=2048.0, json_schema_extra={"editable": False})
+        float, Field(ge=0.5, le=2048.0, json_schema_extra={"editable": True})
     ] = 1.0
     scale_z: Annotated[
-        float, Field(ge=16.0, le=512.0, json_schema_extra={"editable": False})
+        float, Field(ge=16.0, le=512.0, json_schema_extra={"editable": True})
     ] = 24.0
     second_pt_y: Annotated[
         float, Field(ge=0.5, le=0.85, json_schema_extra={"editable": False})
@@ -90,13 +88,13 @@ class CloudParameters(AssetParameters):
         int, Field(ge=4, le=12, json_schema_extra={"editable": False})
     ] = 8
     y_lobe_peak: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})
+        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})
     ] = 0.9
     y_lobe_trough: Annotated[
-        float, Field(ge=-1.0, le=-0.8, json_schema_extra={"editable": False})
+        float, Field(ge=-1.0, le=-0.8, json_schema_extra={"editable": True})
     ] = -0.9
     y_lobe_count: Annotated[
-        int, Field(ge=2, le=5, json_schema_extra={"editable": False})
+        int, Field(ge=2, le=5, json_schema_extra={"editable": True})
     ] = 3
 
 
@@ -113,10 +111,12 @@ def _z_curve_pts(params: CloudParameters, first_y: float = -1.0) -> list[list[fl
     ]
 
 
-def _geo_params_from_cloud(params: CloudParameters, emission: float = 0.0) -> dict:
+def _geo_params_from_cloud(
+    params: CloudParameters, emission: float = 0.0, *, anisotropy: float
+) -> dict:
     return {
         "density": 1.0,
-        "anisotropy": params.anisotropy,
+        "anisotropy": anisotropy,
         "noise_scale": params.noise_scale,
         "noise_detail": params.noise_detail,
         "voronoi_scale": params.voronoi_scale,
@@ -138,7 +138,6 @@ def _sample_cumulus_spawn(params: CloudParameters) -> CloudParameters:
     scale_z = uniform(16.0, 32.0)
     return params.model_copy(
         update={
-            "anisotropy": uniform(-0.5, 0.5),
             "first_pt_x": uniform(-0.95, -0.8),
             "forth_pt_y": uniform(0.9, 1.0),
             "mix_factor": uniform(0.3, 0.8),
@@ -160,7 +159,6 @@ def _sample_cumulonimbus_spawn(params: CloudParameters) -> CloudParameters:
     scale_x = uniform(512.0, 1024.0)
     return params.model_copy(
         update={
-            "anisotropy": uniform(-0.5, 0.5),
             "first_pt_x": uniform(-0.65, -0.5),
             "forth_pt_y": uniform(-1.0, 0.5),
             "mix_factor": uniform(0.3, 0.8),
@@ -182,7 +180,6 @@ def _sample_stratocumulus_spawn(params: CloudParameters) -> CloudParameters:
     scale_x = uniform(128.0, 256.0)
     return params.model_copy(
         update={
-            "anisotropy": uniform(-0.5, 0.5),
             "first_pt_x": uniform(-0.95, -0.8),
             "forth_pt_y": uniform(0.9, 1.0),
             "mix_factor": uniform(0.3, 0.8),
@@ -208,7 +205,6 @@ def _sample_altocumulus_spawn(params: CloudParameters) -> CloudParameters:
     scale_x = uniform(scale_z * 1.2, scale_z * 2.0) * 4.0
     return params.model_copy(
         update={
-            "anisotropy": uniform(-0.5, 0.5),
             "first_pt_x": uniform(-0.95, -0.8),
             "forth_pt_y": uniform(0.9, 1.0),
             "mix_factor": uniform(0.3, 0.8),
@@ -288,6 +284,8 @@ class CloudFactory(ParameterizedAssetFactory, AssetFactory):
         self.max_scale = max(t.MAX_EXPECTED_SCALE for t in self.cloud_types)
         self.density = max(t.PLACEHOLDER_DENSITY for t in self.cloud_types)
         self._use_fixed_spawn_draws = spawn_scope
+        with FixedSeed(params.seed):
+            self._anisotropy = uniform(-0.5, 0.5)
         if spawn_scope:
             self._cloud_params = params
 
@@ -319,7 +317,7 @@ class CloudFactory(ParameterizedAssetFactory, AssetFactory):
             cloud_type = self.cloud_types[type_idx]
             resolution = _cloud_resolution(self, cloud_type, distance)
             new_cloud = _make_parameterized_cloud(
-                cloud_type, "Cloud", self.ref_cloud, p, resolution
+                cloud_type, "Cloud", self.ref_cloud, p, resolution, self._anisotropy
             )
         else:
             cloud_type = np.random.choice(self.cloud_types)
@@ -451,7 +449,7 @@ class CumulonimbusFactory(CloudFactory):
         resolution = _cloud_resolution(self, cloud_type, distance)
         if self._use_fixed_spawn_draws:
             new_cloud = _make_parameterized_cloud(
-                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution * 2
+                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution * 2, self._anisotropy
             )
         else:
             new_cloud = cloud_type("Cloud", self.ref_cloud)
@@ -499,7 +497,7 @@ class CumulusFactory(CloudFactory):
         resolution = _cloud_resolution(self, cloud_type, distance)
         if self._use_fixed_spawn_draws:
             new_cloud = _make_parameterized_cloud(
-                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution
+                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution, self._anisotropy
             )
         else:
             new_cloud = cloud_type("Cloud", self.ref_cloud)
@@ -586,8 +584,11 @@ class _ParameterizedStratocumulus(Stratocumulus):
 
 
 class _ParameterizedAltocumulus(Altocumulus):
-    def __init__(self, name: str, ref_cloud, params: CloudParameters):
+    def __init__(
+        self, name: str, ref_cloud, params: CloudParameters, anisotropy: float
+    ):
         self._params = params
+        self._anisotropy = anisotropy
         self._curve_pts = _z_curve_pts(params)
         self._geo_scale = [params.scale_x, params.scale_y, params.scale_z]
         super().__init__(name, ref_cloud)
@@ -608,7 +609,7 @@ class _ParameterizedAltocumulus(Altocumulus):
         }
         return {
             "densities": np.full(n, 1.0),
-            "anisotropies": np.full(n, p.anisotropy),
+            "anisotropies": np.full(n, self._anisotropy),
             "noise_scales": np.full(n, p.noise_scale),
             "noise_details": np.full(n, p.noise_detail),
             "voronoi_scales": np.full(n, p.voronoi_scale),
@@ -625,20 +626,21 @@ def _make_parameterized_cloud(
     ref_cloud,
     params: CloudParameters,
     resolution: int,
+    anisotropy: float,
 ):
     if cloud_type is Cumulus:
         cloud = _ParameterizedCumulus(
             name,
             ref_cloud,
             curve_pts=_z_curve_pts(params),
-            geo_params=_geo_params_from_cloud(params),
+            geo_params=_geo_params_from_cloud(params, anisotropy=anisotropy),
         )
     elif cloud_type is Cumulonimbus:
         cloud = _ParameterizedCumulus(
             name,
             ref_cloud,
             curve_pts=_z_curve_pts(params),
-            geo_params=_geo_params_from_cloud(params, emission=0.01),
+            geo_params=_geo_params_from_cloud(params, emission=0.01, anisotropy=anisotropy),
         )
     elif cloud_type is Stratocumulus:
         cloud = _ParameterizedStratocumulus(
@@ -648,10 +650,10 @@ def _make_parameterized_cloud(
             y_lobe_count=params.y_lobe_count,
             y_lobe_peak=params.y_lobe_peak,
             y_lobe_trough=params.y_lobe_trough,
-            geo_params=_geo_params_from_cloud(params),
+            geo_params=_geo_params_from_cloud(params, anisotropy=anisotropy),
         )
     elif cloud_type is Altocumulus:
-        cloud = _ParameterizedAltocumulus(name, ref_cloud, params)
+        cloud = _ParameterizedAltocumulus(name, ref_cloud, params, anisotropy)
     else:
         cloud = cloud_type(name, ref_cloud)
     return cloud.make_cloud(marching_cubes=False, resolution=resolution)
@@ -681,7 +683,7 @@ class StratocumulusFactory(CloudFactory):
         resolution = _cloud_resolution(self, cloud_type, distance)
         if self._use_fixed_spawn_draws:
             new_cloud = _make_parameterized_cloud(
-                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution
+                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution, self._anisotropy
             )
         else:
             new_cloud = cloud_type("Cloud", self.ref_cloud)
@@ -726,7 +728,7 @@ class AltocumulusFactory(CloudFactory):
         resolution = _cloud_resolution(self, cloud_type, distance)
         if self._use_fixed_spawn_draws:
             new_cloud = _make_parameterized_cloud(
-                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution
+                cloud_type, "Cloud", self.ref_cloud, self._cloud_params, resolution, self._anisotropy
             )
         else:
             new_cloud = cloud_type("Cloud", self.ref_cloud)

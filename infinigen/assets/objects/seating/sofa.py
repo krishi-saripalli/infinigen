@@ -1451,13 +1451,13 @@ class ArmChairParameters(AssetParameters):
     width: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})]
     height: Annotated[float, Field(ge=0.69, le=0.97, json_schema_extra={"editable": True})]
     arm_width: Annotated[
-        float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": False})
+        float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})
     ]
     arm_style: Annotated[
         str,
         Field(
             json_schema_extra={
-                "editable": False,
+                "editable": True,
                 "kind": "enum",
                 "choices": ["square", "round", "angular"],
             }

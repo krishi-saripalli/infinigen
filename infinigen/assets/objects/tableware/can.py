@@ -36,33 +36,17 @@ class CanParameters(AssetParameters):
     x_length: Annotated[float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})]
     z_length: Annotated[float, Field(ge=0.025, le=0.25, json_schema_extra={"editable": True})]
     skewness: Annotated[float, Field(ge=1.0, le=2.5, json_schema_extra={"editable": True})]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     cap_extrude: Annotated[
         float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
     ] = 0.0075
     rect_side_frac: Annotated[
-        float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})
+        float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": False})
     ] = 0.5
     shape: Annotated[
         str,
         Field(
             json_schema_extra={
-                "editable": False,
+                "editable": True,
                 "kind": "enum",
                 "choices": ["circle", "rectangle"],
             }
@@ -80,11 +64,12 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _resolve_wear(
-        self, scratch_draw: float, edge_wear_draw: float
-    ) -> tuple[object | None, object | None]:
+    def _resolve_wear(self, seed: int) -> tuple[object | None, object | None]:
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
+        with FixedSeed(seed):
+            scratch_draw = uniform()
+            edge_wear_draw = uniform()
         scratch = None if scratch_draw > scratch_prob else scratch_fn()
         edge_wear = None if edge_wear_draw > edge_wear_prob else edge_wear_fn()
         return scratch, edge_wear
@@ -115,8 +100,6 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
             x_length=x_length,
             z_length=x_length * log_uniform(0.5, 2.5),
             skewness=uniform(1, 2.5),
-            scratch_draw=uniform(),
-            edge_wear_draw=uniform(),
             shape="rectangle",
             has_skew=True,
             **self._sample_spawn_field_updates(),
@@ -137,9 +120,7 @@ class CanFactory(ParameterizedAssetFactory, AssetFactory):
         self.has_skew = params.has_skew
         self.skewness = params.skewness if params.has_skew else 1.0
         self.texture_shared = self._sample_texture_shared(params.seed)
-        self.scratch, self.edge_wear = self._resolve_wear(
-            params.scratch_draw, params.edge_wear_draw
-        )
+        self.scratch, self.edge_wear = self._resolve_wear(params.seed)
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
             with FixedSeed(params.seed):

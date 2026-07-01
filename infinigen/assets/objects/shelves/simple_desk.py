@@ -407,7 +407,7 @@ def _simple_desk_legacy_init(inst: Any, seed: int, coarse: bool) -> None:
 
 
 class SimpleDeskParameters(AssetParameters):
-    depth: Annotated[float, Field(ge=0.45, le=0.75, json_schema_extra={"editable": False})]
+    depth: Annotated[float, Field(ge=0.45, le=0.75, json_schema_extra={"editable": True})]
     width: Annotated[float, Field(ge=0.7, le=2.0, json_schema_extra={"editable": True})]
     height: Annotated[float, Field(ge=0.6, le=0.83, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": False})]
@@ -470,7 +470,7 @@ class SidetableDeskParameters(AssetParameters):
         float, Field(ge=0.44, le=0.66, json_schema_extra={"editable": False})
     ]
     height_ratio: Annotated[
-        float, Field(ge=0.9, le=1.1, json_schema_extra={"editable": False})
+        float, Field(ge=0.9, le=1.1, json_schema_extra={"editable": True})
     ]
 
 

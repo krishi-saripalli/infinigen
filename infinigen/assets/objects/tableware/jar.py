@@ -31,22 +31,6 @@ from infinigen.core.util.random import weighted_sample
 class JarParameters(AssetParameters):
     z_length: Annotated[float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": True})]
     x_length: Annotated[float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": True})]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     n_base: Annotated[
         int,
         Field(
@@ -66,27 +50,30 @@ class JarFactory(ParameterizedAssetFactory, AssetFactory):
         super().__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> JarParameters:
+    def _resolve_wear(self, seed: int) -> tuple[object | None, object | None]:
         scratch_prob, edge_wear_prob = material_assignments.wear_tear_prob
         scratch_fn, edge_wear_fn = material_assignments.wear_tear
-        scratch_draw = uniform()
-        edge_wear_draw = uniform()
+        with FixedSeed(seed):
+            scratch_draw = uniform()
+            edge_wear_draw = uniform()
+        scratch = None if scratch_draw > scratch_prob else scratch_fn()
+        edge_wear = None if edge_wear_draw > edge_wear_prob else edge_wear_fn()
+        return scratch, edge_wear
+
+    def _sample_init_parameters(self, seed: int) -> JarParameters:
         self.surface = weighted_sample(material_assignments.jar)()
         self.cap_surface = weighted_sample(material_assignments.appliance_handle)()
-        self.scratch = None if scratch_draw > scratch_prob else scratch_fn()
-        self.edge_wear = None if edge_wear_draw > edge_wear_prob else edge_wear_fn()
         return JarParameters(
             seed=seed,
             z_length=uniform(0.15, 0.2),
             x_length=uniform(0.03, 0.06),
-            scratch_draw=scratch_draw,
-            edge_wear_draw=edge_wear_draw,
             n_base=int(np.random.choice([4, 6, 64])),
         )
 
     def apply_parameters(
         self, params: JarParameters, *, spawn_scope: bool = True
     ) -> None:
+        self.scratch, self.edge_wear = self._resolve_wear(params.seed)
         self.n_base = params.n_base
         self.z_length = params.z_length
         self.x_length = params.x_length

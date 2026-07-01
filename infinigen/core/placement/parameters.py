@@ -47,12 +47,18 @@ def _is_editable(field_info: Any) -> bool:
     return True
 
 
-def _thin(values: list[Any], n: int) -> list[Any]:
-    """Return at most n values evenly spaced across the list, keeping both ends."""
-    if n <= 0 or n >= len(values):
-        return values
-    idx = np.linspace(0, len(values) - 1, n).round().astype(int)
-    return [values[i] for i in dict.fromkeys(idx.tolist())]
+def _integer_points(low: int, high: int, base: int, N: int) -> tuple[list[float], list[int]]:    
+    """Return evenly spacedinteger values excluding the base value with at most N points"""    
+    values = np.arange(low, high + 1).tolist()    
+    values.remove(base) 
+    if len(values) > N:
+        return values[:N//2] + values[-(N//2):] # sample both ends
+    return values
+
+def _snap_to_endpoint(current: float, low: float, high: float) -> float:
+    """ snap to the *farther* endpoint of a range """
+    return [high if (high - current) >= (current - low) else low]
+
 
 
 class AssetParameters(BaseModel):
@@ -93,9 +99,9 @@ class AssetParameters(BaseModel):
         current = getattr(self, field)
         if kind == "bool":
             return [not current]
-        # TODO: doesn't this only make sense if the generator's internal logic for this draw has a threshold of exactly 0.5? Shouldn't we store the `threshold` on the field and use it?
         if kind == "draw_bool":
-            return [0.0 if float(current) >= 0.5 else 1.0]
+            threshold = float(_field_extra(field_info).get("threshold", 0.5))
+            return [0.0 if float(current) >= threshold else 1.0]
         if kind == "enum":
             return [c for c in _field_choices(field_info) if c != current]
         bounds = _field_bounds(field_info)
@@ -103,9 +109,9 @@ class AssetParameters(BaseModel):
             return []
         low, high = bounds
         if isinstance(current, int):
-            values = [v for v in range(int(low), int(high) + 1) if v != current]
-            return _thin(values, max_int_steps)
+            return _integer_points(low, high, current, max_int_steps)
         return [high if (high - current) >= (current - low) else low]
+
 
     def edit(self, field: str, value: Any) -> Self:
         """Return a copy with ``field`` set to a native target from ``sweep``."""

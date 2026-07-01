@@ -918,9 +918,6 @@ class TreeFlowerParameters(AssetParameters):
     max_angle: Annotated[
         float, Field(ge=-0.349066, le=1.745329, json_schema_extra={"editable": True})
     ]
-    inst_rad_scale: Annotated[
-        float, Field(ge=0.85, le=1.15, json_schema_extra={"editable": False})
-    ] = 1.0
     rotation_z: Annotated[
         float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
     ] = 0.0
@@ -965,7 +962,6 @@ class TreeFlowerFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> TreeFlowerParameters:
         return params.model_copy(
             update={
-                "inst_rad_scale": float(normal(1, 0.05)),
                 "rotation_z": uniform(0, 360),
             }
         )
@@ -973,13 +969,12 @@ class TreeFlowerFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: TreeFlowerParameters, *, spawn_scope: bool = True
     ) -> None:
-        # NOTE: rad may be overridden by parent TreeFlowerFactory(_rad=...) preset; inst_rad_scale spawn draw also modulates size; excluded from quartet sampling.
         self.rad = params.rad
-        # NOTE: diversity_fac, seed_size, and wrinkle do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
         with FixedSeed(params.seed):
             self.diversity_fac = self._diversity_fac
             self.seed_size = uniform(0.005, 0.01)
             self.wrinkle = uniform(0.003, 0.02)
+            self._inst_rad_scale = float(normal(1, 0.05))
         self.species_params = self._build_flower_params(params.rad, params)
         self._spawn_params = params
         self._use_fixed_spawn_draws = spawn_scope
@@ -1052,7 +1047,7 @@ class TreeFlowerFactory(ParameterizedAssetFactory, AssetFactory):
 
         if self._use_fixed_spawn_draws:
             inst_params = self._build_flower_params(
-                self.rad * self._spawn_params.inst_rad_scale, self._spawn_params
+                self.rad * self._inst_rad_scale, self._spawn_params
             )
             rotation_z = self._spawn_params.rotation_z
         else:

@@ -937,7 +937,7 @@ class LargeShelfParameters(AssetParameters):
     ]
     # NOTE: only adds bottom board height when True (~20% of samples).
     has_bottom_board: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
 
 

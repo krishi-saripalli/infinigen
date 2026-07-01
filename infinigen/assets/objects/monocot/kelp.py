@@ -58,7 +58,6 @@ class KelpMonocotParameters(AssetParameters):
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
     ]
     anim_seed: Annotated[int, Field(ge=0, le=100000, json_schema_extra={"editable": True})]
-    base_hue: Annotated[float, Field(ge=0.05, le=0.25, json_schema_extra={"editable": True})]
     z_scale: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
 
 
@@ -71,18 +70,22 @@ class KelpMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         super(KelpMonocotFactory, self).__init__(factory_seed, coarse)
         self.init_legacy_parameters()
 
-    def _sample_init_parameters(self, seed: int) -> KelpMonocotParameters:
-        base_hue = uniform(0.05, 0.25)
-        z_scale = uniform(1.0, 1.2)
-        bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
-        dark_color = hsv2rgba(
-            (base_hue + uniform(-0.03, 0.03)) % 1,
-            uniform(0.8, 1.0),
-            log_uniform(0.05, 0.2),
-        )
+    def _sample_material(self, seed: int) -> None:
+        with FixedSeed(seed):
+            base_hue = uniform(0.05, 0.25)
+            bright_color = hsv2rgba(base_hue, uniform(0.6, 0.8), log_uniform(0.05, 0.1))
+            dark_color = hsv2rgba(
+                (base_hue + uniform(-0.03, 0.03)) % 1,
+                uniform(0.8, 1.0),
+                log_uniform(0.05, 0.2),
+            )
         self.material = shaderfunc_to_material(
             self.shader_monocot, dark_color, bright_color, self.use_distance
         )
+
+    def _sample_init_parameters(self, seed: int) -> KelpMonocotParameters:
+        self._sample_material(seed)
+        z_scale = uniform(1.0, 1.2)
         return KelpMonocotParameters(
             seed=seed,
             angle=uniform(np.pi / 6, np.pi / 4),
@@ -96,13 +99,13 @@ class KelpMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
             anim_period=log_uniform(100, 200),
             anim_offset=uniform(0, 1),
             anim_seed=int(np.random.randint(1e5)),
-            base_hue=base_hue,
             z_scale=z_scale,
         )
 
     def apply_parameters(
         self, params: KelpMonocotParameters, *, spawn_scope: bool = True
     ) -> None:
+        self._sample_material(params.seed)
         with FixedSeed(params.seed):
             self.align_angle = uniform(np.pi / 30, np.pi / 15)
         self.stem_offset = 10.0
@@ -119,7 +122,6 @@ class KelpMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
         self.scale_curve = [(0, 1), (1, 1)]
         self.perturb = 0.05
         self.z_scale = params.z_scale
-        self.base_hue = params.base_hue
         self.align_direction = (
             np.cos(params.flow_angle),
             np.sin(params.flow_angle),

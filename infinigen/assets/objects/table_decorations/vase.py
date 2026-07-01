@@ -31,9 +31,6 @@ class VaseFactoryParameters(AssetParameters):
     height: Annotated[float, Field(ge=0.17, le=0.5, json_schema_extra={"editable": True})]
     diameter: Annotated[float, Field(ge=0.05, le=0.3, json_schema_extra={"editable": True})]
     top_scale: Annotated[float, Field(ge=0.16, le=0.96, json_schema_extra={"editable": False})]
-    neck_position: Annotated[
-        float, Field(ge=0.55, le=0.95, json_schema_extra={"editable": True})
-    ]
     neck_scale: Annotated[float, Field(ge=0.2, le=0.8, json_schema_extra={"editable": True})]
     shoulder_position: Annotated[
         float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})
@@ -67,6 +64,16 @@ class VaseFactory(ParameterizedAssetFactory, AssetFactory):
             self._scratch = None if uniform() > scratch_prob else scratch()
             self._edge_wear = None if uniform() > edge_wear_prob else edge_wear()
 
+    def _derive_neck_position(self, neck_scale: float, seed: int) -> float:
+        with FixedSeed(seed):
+            if self._dimensions is None:
+                uniform(0.17, 0.5)
+                uniform(0.3, 0.6)
+            uniform(0.2, 0.8)
+            uniform(0.8, 1.2)
+            jitter = uniform(-0.05, 0.05)
+        return 0.5 * neck_scale + 0.5 + jitter
+
     def _sample_init_parameters(self, seed: int) -> VaseFactoryParameters:
         if self._dimensions is None:
             z = uniform(0.17, 0.5)
@@ -80,7 +87,6 @@ class VaseFactory(ParameterizedAssetFactory, AssetFactory):
             height=z,
             diameter=x,
             top_scale=neck_scale * uniform(0.8, 1.2),
-            neck_position=0.5 * neck_scale + 0.5 + uniform(-0.05, 0.05),
             neck_scale=neck_scale,
             shoulder_position=uniform(0.3, 0.7),
             shoulder_thickness=uniform(0.1, 0.25),
@@ -105,6 +111,7 @@ class VaseFactory(ParameterizedAssetFactory, AssetFactory):
             self.neck_mid_position = uniform(0.7, 0.95)
             self.profile_star_points = int(randint(16, 33))
         # NOTE: top_scale, shoulder_thickness, foot_scale, and foot_height effects vary with neck/foot profile branches; excluded from quartet sampling.
+        neck_position = self._derive_neck_position(params.neck_scale, params.seed)
         self.params = {
             "Profile Inner Radius": 1.0,
             "Profile Star Points": self.profile_star_points,
@@ -114,7 +121,7 @@ class VaseFactory(ParameterizedAssetFactory, AssetFactory):
             "Diameter": x,
             "Top Scale": params.top_scale,
             "Neck Mid Position": self.neck_mid_position,
-            "Neck Position": params.neck_position,
+            "Neck Position": neck_position,
             "Neck Scale": params.neck_scale,
             "Shoulder Position": params.shoulder_position,
             "Shoulder Thickness": params.shoulder_thickness,

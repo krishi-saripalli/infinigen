@@ -87,7 +87,7 @@ class MattressParameters(AssetParameters):
         str,
         Field(
             json_schema_extra={
-                "editable": False,
+                "editable": True,
                 "kind": "enum",
                 "choices": ["coiled", "wrapped"],
             }

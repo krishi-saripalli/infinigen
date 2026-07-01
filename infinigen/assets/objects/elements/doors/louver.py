@@ -42,14 +42,14 @@ def _louver_legacy_init(
 
 class LouverDoorParameters(AssetParameters):
     has_panel: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
     has_upper_panel: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
     # NOTE: only used inside louver() on panels selected by has_panel/has_upper_panel layout.
     y_subdivisions: Annotated[
-        int, Field(ge=1, le=5, json_schema_extra={"editable": False})
+        int, Field(ge=1, le=5, json_schema_extra={"editable": True})
     ]
 
 

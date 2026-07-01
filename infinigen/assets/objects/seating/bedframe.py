@@ -46,7 +46,11 @@ class BedFrameParameters(ChairParameters):
     ] = 1.0
     has_all_legs_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.2},
+        ),
     ]
     leg_decor_wrapped_draw: Annotated[
         float,

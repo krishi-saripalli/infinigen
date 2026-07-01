@@ -1860,13 +1860,13 @@ def geometry_coconut_tree_nodes(nw: NodeWrangler, **kwargs):
 
 class CoconutTreeParameters(AssetParameters):
     trunk_radius: Annotated[
-        float, Field(ge=0.2, le=0.3, json_schema_extra={"editable": False})
+        float, Field(ge=0.2, le=0.3, json_schema_extra={"editable": True})
     ] = 0.25
     leaf_x_curvature: Annotated[
-        float, Field(ge=0.3, le=0.8, json_schema_extra={"editable": False})
+        float, Field(ge=0.3, le=0.8, json_schema_extra={"editable": True})
     ] = 0.55
     crown_radius: Annotated[
-        float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": False})
+        float, Field(ge=0.15, le=0.2, json_schema_extra={"editable": True})
     ] = 0.175
     truncated_stem_chance: Annotated[
         float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})

@@ -27,6 +27,7 @@ from infinigen.core.placement.parameters import (
     AssetParameters,
     ParameterizedAssetFactory,
 )
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(
@@ -833,10 +834,6 @@ class LeafPalmPlantParameters(AssetParameters):
     plant_stem_length: Annotated[
         float, Field(ge=1.5, le=2.2, json_schema_extra={"editable": False})
     ] = 1.85
-    plant_scale: Annotated[
-        float, Field(ge=0.8, le=1.3, json_schema_extra={"editable": False})
-    ] = 1.05
-    plant_z_rotate: Annotated[float, Field(ge=-0.4, le=0.4)] = 0.0
     leaf_width_scale: Annotated[float, Field(ge=0.15, le=0.2)] = 0.175
 
 
@@ -899,8 +896,6 @@ class LeafPalmPlantFactory(ParameterizedAssetFactory, AssetFactory):
                 "stem_x_curvature": uniform(-0.1, 0.4),
                 "stem_y_curvature": uniform(-0.15, 0.15),
                 "plant_stem_length": uniform(1.5, 2.2),
-                "plant_scale": uniform(0.8, 1.3),
-                "plant_z_rotate": uniform(-0.4, 0.4),
                 "leaf_width_scale": uniform(0.15, 0.2),
             }
         )
@@ -908,7 +903,9 @@ class LeafPalmPlantFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: LeafPalmPlantParameters, *, spawn_scope: bool = True
     ) -> None:
-        s = params.plant_scale
+        with FixedSeed(params.seed):
+            plant_scale = uniform(0.8, 1.3)
+            plant_z_rotate = uniform(-0.4, 0.4)
         self.geom_kwargs = self.update_params(
             wave_mode_draw=params.wave_mode_draw,
             leaf_h_wave_scale=params.leaf_h_wave_scale,
@@ -917,8 +914,8 @@ class LeafPalmPlantFactory(ParameterizedAssetFactory, AssetFactory):
             stem_y_curvature=params.stem_y_curvature,
             plant_stem_length=params.plant_stem_length,
             plant_translation=(0.0, 0.0, 0.0),
-            plant_z_rotate=params.plant_z_rotate,
-            plant_scale=(s, s, s),
+            plant_z_rotate=plant_z_rotate,
+            plant_scale=(plant_scale, plant_scale, plant_scale),
             leaf_width_scale=params.leaf_width_scale,
         )
         self._use_fixed_spawn_draws = spawn_scope

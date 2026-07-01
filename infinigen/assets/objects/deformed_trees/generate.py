@@ -34,9 +34,6 @@ class DeformedTreeParameters(AssetParameters):
             }
         ),
     ] = "fallen"
-    base_hue: Annotated[
-        float, Field(ge=0.02, le=0.08, json_schema_extra={"editable": True})
-    ]
     skinning_scale: Annotated[
         float, Field(ge=0.15, le=0.25, json_schema_extra={"editable": True})
     ]
@@ -68,7 +65,6 @@ class DeformedTreeFactory(ParameterizedAssetFactory, AssetFactory):
         return DeformedTreeParameters(
             seed=seed,
             maker_draw="fallen",
-            base_hue=uniform(0.02, 0.08),
             skinning_scale=uniform(0.15, 0.25),
             ring_wave_scale=uniform(10, 20),
             ring_distortion=uniform(4, 10),
@@ -85,7 +81,6 @@ class DeformedTreeFactory(ParameterizedAssetFactory, AssetFactory):
         with FixedSeed(params.seed):
             maker_params = maker_factory.__new__(maker_factory)._sample_init_parameters(params.seed)
         shared = {
-            "base_hue": params.base_hue,
             "skinning_scale": params.skinning_scale,
             "ring_wave_scale": params.ring_wave_scale,
             "ring_distortion": params.ring_distortion,

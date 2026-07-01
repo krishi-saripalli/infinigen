@@ -199,31 +199,21 @@ def geometry_assemble_table(nw: NodeWrangler, **kwargs):
 
 
 class TableDiningParameters(AssetParameters):
-    width: Annotated[float, Field(ge=0.91, le=1.16, json_schema_extra={"editable": False})]
+    width: Annotated[float, Field(ge=0.91, le=1.16, json_schema_extra={"editable": True})]
     dimensions: Annotated[float, Field(ge=0.65, le=0.85, json_schema_extra={"editable": True})]
     top_thickness: Annotated[
-        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": False})
+        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": True})
     ]
     strecher_relative_pos: Annotated[
         float, Field(ge=0.2, le=0.6, json_schema_extra={"editable": False})
     ]
-    dining_table_230: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
-    ] = 1.0
-    strecher_increament: Annotated[
-        int,
-        Field(
-            json_schema_extra={"editable": False, "kind": "enum", "choices": [0, 1, 2]}
-        ),
-    ] = 1
 
 
 class CoffeeTableParameters(TableDiningParameters):
-    width: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": False})]
+    width: Annotated[float, Field(ge=0.6, le=0.9, json_schema_extra={"editable": True})]
     dimensions: Annotated[float, Field(ge=0.4, le=0.5, json_schema_extra={"editable": True})]
-    # NOTE: effect depends on sampled leg style.
     top_thickness: Annotated[
-        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": False})
+        float, Field(ge=0.03, le=0.06, json_schema_extra={"editable": True})
     ]
     # NOTE: only applies when Leg Style is straight.
     strecher_relative_pos: Annotated[
@@ -277,7 +267,7 @@ class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
     def _spawn_length(self, params: TableDiningParameters) -> float:
         if self._table_dimensions is not None:
             return self._table_dimensions[0]
-        if params.dining_table_230 < 0.7:
+        if self.dining_table_230 < 0.7:
             return uniform(1.4, 2.8)
         schema = self.parameters_model.model_json_schema()["properties"]["width"]
         with FixedSeed(int_hash((params.seed, "table_length"))):
@@ -356,7 +346,7 @@ class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
             "Leg Curve Control Points": spawn["leg_curve_ctrl_pts"],
             # NOTE: strecher_relative_pos only affects geometry when leg_style is straight (~50% of seeds).
             "Strecher Relative Pos": params.strecher_relative_pos,
-            "Strecher Increament": params.strecher_increament,
+            "Strecher Increament": self.strecher_increament,
         }
 
     def _sample_init_parameters(self, seed: int) -> TableDiningParameters:
@@ -369,14 +359,15 @@ class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
         else:
             width = self._sample_model_field("width")
             height = self._sample_model_field("dimensions")
+        with FixedSeed(seed):
+            self.dining_table_230 = 1.0
+            self.strecher_increament = 1
         return self.parameters_model(
             seed=seed,
             width=width,
             dimensions=height,
             top_thickness=uniform(0.03, 0.06),
             strecher_relative_pos=uniform(0.2, 0.6),
-            dining_table_230=1.0,
-            strecher_increament=1,
         )
 
     def _sample_spawn_parameters(
@@ -397,6 +388,8 @@ class TableDiningFactory(ParameterizedAssetFactory, AssetFactory):
         with FixedSeed(params.seed):
             self.top_vertical_fillet_ratio = uniform(0.1, 0.3)
             self.top_profile_fillet_ratio = uniform(0.0, 0.02)
+            self.dining_table_230 = 1.0
+            self.strecher_increament = 1
         # NOTE: top_thickness and strecher_relative_pos effects vary by leg_style spawn branch (stretchers only on straight legs); excluded from quartet sampling.
         self.dimensions = self._table_dimensions
         if spawn_scope and hasattr(self, "_geometry_spawn"):
@@ -484,14 +477,15 @@ class CoffeeTableFactory(TableDiningFactory):
         else:
             width = self._sample_model_field("width")
             height = self._sample_model_field("dimensions")
+        with FixedSeed(seed):
+            self.dining_table_230 = 1.0
+            self.strecher_increament = 1
         return CoffeeTableParameters(
             seed=seed,
             width=width,
             dimensions=height,
             top_thickness=uniform(0.03, 0.06),
             strecher_relative_pos=uniform(0.2, 0.6),
-            dining_table_230=1.0,
-            strecher_increament=1,
         )
 
     def apply_parameters(

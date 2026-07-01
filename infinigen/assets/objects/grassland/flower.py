@@ -25,7 +25,7 @@ from infinigen.core.placement.parameters import (
 )
 from infinigen.core.tagging import tag_nodegroup, tag_object
 from infinigen.core.util import blender as butil
-from infinigen.core.util.math import dict_lerp
+from infinigen.core.util.math import FixedSeed, dict_lerp
 
 
 @node_utils.to_nodegroup("nodegroup_polar_to_cart_old", singleton=True)
@@ -908,9 +908,6 @@ def geo_flower(nw, petal_material, center_material):
 
 class FlowerParameters(AssetParameters):
     rad: Annotated[float, Field(ge=0.05, le=0.5, json_schema_extra={"editable": True})]
-    diversity_fac: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})
-    ]
     pct_inner: Annotated[float, Field(ge=0.05, le=0.4, json_schema_extra={"editable": True})]
     seed_size: Annotated[
         float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
@@ -923,12 +920,6 @@ class FlowerParameters(AssetParameters):
     max_angle: Annotated[
         float, Field(ge=-0.349066, le=1.745329, json_schema_extra={"editable": True})
     ]
-    inst_rad_scale: Annotated[
-        float, Field(ge=0.85, le=1.15, json_schema_extra={"editable": False})
-    ] = 1.0
-    rotation_z: Annotated[
-        float, Field(ge=0.0, le=6.283185, json_schema_extra={"editable": False})
-    ] = 0.0
 
 
 class FlowerFactory(ParameterizedAssetFactory, AssetFactory):
@@ -948,7 +939,6 @@ class FlowerFactory(ParameterizedAssetFactory, AssetFactory):
         return FlowerParameters(
             seed=seed,
             rad=self._rad,
-            diversity_fac=self._diversity_fac,
             pct_inner=pct_inner,
             seed_size=uniform(0.005, 0.01),
             wrinkle=uniform(0.003, 0.02),
@@ -960,20 +950,18 @@ class FlowerFactory(ParameterizedAssetFactory, AssetFactory):
     def _sample_spawn_parameters(
         self, params: FlowerParameters, seed: int, i: int
     ) -> FlowerParameters:
-        return params.model_copy(
-            update={
-                "inst_rad_scale": float(normal(1, 0.05)),
-                "rotation_z": uniform(0, 360),
-            }
-        )
+        return params
 
     def apply_parameters(
         self, params: FlowerParameters, *, spawn_scope: bool = True
     ) -> None:
         self.rad = params.rad
-        self.diversity_fac = params.diversity_fac
+        self.diversity_fac = self._diversity_fac
         self.species_params = self._build_flower_params(params.rad, params)
         self._spawn_params = params
+        with FixedSeed(params.seed):
+            self.inst_rad_scale = float(normal(1, 0.05))
+            self.rotation_z = uniform(0, 360)
         self._use_fixed_spawn_draws = spawn_scope
 
     @staticmethod
@@ -1027,9 +1015,9 @@ class FlowerFactory(ParameterizedAssetFactory, AssetFactory):
 
         if self._use_fixed_spawn_draws:
             inst_params = self._build_flower_params(
-                self.rad * self._spawn_params.inst_rad_scale, self._spawn_params
+                self.rad * self.inst_rad_scale, self._spawn_params
             )
-            rotation_z = self._spawn_params.rotation_z
+            rotation_z = self.rotation_z
         else:
             inst_params = self.get_flower_params(self.rad * normal(1, 0.05))
             rotation_z = uniform(0, 360)

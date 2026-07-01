@@ -96,12 +96,12 @@ def _sample_lite_layout(
 
 
 class LiteDoorParameters(AssetParameters):
-    y_min: Annotated[float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": False})]
+    y_min: Annotated[float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": True})]
     x_subdivisions: Annotated[
-        int, Field(ge=1, le=3, json_schema_extra={"editable": False})
+        int, Field(ge=1, le=3, json_schema_extra={"editable": True})
     ]
     y_subdivisions: Annotated[
-        int, Field(ge=1, le=5, json_schema_extra={"editable": False})
+        int, Field(ge=1, le=5, json_schema_extra={"editable": True})
     ]
 
 

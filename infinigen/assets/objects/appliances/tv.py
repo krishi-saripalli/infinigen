@@ -60,14 +60,10 @@ class TVParameters(AssetParameters):
     ]
     side_margin: Annotated[float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})]
     depth: Annotated[float, Field(ge=0.02, le=0.04, json_schema_extra={"editable": True})]
-    has_depth_extrude_draw: Annotated[
-        float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": False, "kind": "draw_bool"}),
-    ] = 0.0
     depth_extrude_multiplier: Annotated[
         float, Field(ge=2.0, le=5.0, json_schema_extra={"editable": True})
     ]
-    leg_length: Annotated[float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": False})]
+    leg_length: Annotated[float, Field(ge=0.1, le=0.2, json_schema_extra={"editable": True})]
     leg_width: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": False})]
     tv_164: Annotated[float, Field(ge=0.1, le=0.3, json_schema_extra={"editable": False})] = (
         0.2
@@ -139,7 +135,6 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
             screen_bevel_width=uniform(0, 0.01),
             side_margin=log_uniform(0.005, 0.01),
             depth=depth,
-            has_depth_extrude_draw=0.0,
             depth_extrude_multiplier=uniform(2, 5),
             leg_length=uniform(0.1, 0.2),
             leg_width=uniform(0.5, 0.8),
@@ -185,7 +180,7 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
         self.screen_bevel_width = params.screen_bevel_width
         self.side_margin = params.side_margin
         self.depth = params.depth
-        self.has_depth_extrude = params.has_depth_extrude_draw < 0.4
+        self.has_depth_extrude = False
         if self.has_depth_extrude:
             self.depth_extrude = self.depth * params.depth_extrude_multiplier
         else:

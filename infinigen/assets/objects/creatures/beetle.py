@@ -155,16 +155,16 @@ class BeetleParameters(AssetParameters):
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = False
     leg_splay: Annotated[
-        float, Field(ge=30.0, le=60.0, json_schema_extra={"editable": False})
+        float, Field(ge=30.0, le=60.0, json_schema_extra={"editable": True})
     ]
     head_pitch: Annotated[
-        float, Field(ge=-30.0, le=0.0, json_schema_extra={"editable": False})
+        float, Field(ge=-30.0, le=0.0, json_schema_extra={"editable": True})
     ]
     proportion_noise: Annotated[
         float, Field(ge=1.0, le=3.0, json_schema_extra={"editable": True})
     ]
     leg_density: Annotated[
-        float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": False})
+        float, Field(ge=2.0, le=6.0, json_schema_extra={"editable": True})
     ]
 
 

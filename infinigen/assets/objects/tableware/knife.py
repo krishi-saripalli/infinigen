@@ -33,22 +33,6 @@ class KnifeParameters(AssetParameters):
     x_length: Annotated[float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})]
     y_length: Annotated[float, Field(ge=0.1, le=0.5, json_schema_extra={"editable": True})]
     thickness: Annotated[float, Field(ge=0.02, le=0.03, json_schema_extra={"editable": False})]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     has_guard: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = True
@@ -91,7 +75,6 @@ class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
             self.y_offset = 0.2 + (y_off - 0.25) / 0.75 * 0.4
 
     def _sample_init_parameters(self, seed: int) -> KnifeParameters:
-        base = sample_tableware_base(seed)
         thickness = log_uniform(0.02, 0.03)
         has_guard = True
         y_length = log_uniform(0.1, 0.5)
@@ -100,8 +83,6 @@ class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
             x_length=log_uniform(0.4, 0.7),
             y_length=y_length,
             thickness=thickness,
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
             has_guard=has_guard,
             guard_type="round" if uniform(0, 1) < 0.6 else "double",
             x_anchor_1=uniform(0.5, 0.8),
@@ -136,8 +117,6 @@ class KnifeFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=self._lower_thresh,
             scale=self.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             guard_depth=guard_depth_mult * params.thickness,
         )
         self.has_guard = params.has_guard

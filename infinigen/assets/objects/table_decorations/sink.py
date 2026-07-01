@@ -198,15 +198,6 @@ class SinkFactory(ParameterizedAssetFactory, AssetFactory):
 class TapParameters(AssetParameters):
     base_width: Annotated[float, Field(ge=0.57, le=0.63, json_schema_extra={"editable": False})]
     base_radius: Annotated[float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": True})]
-    hand_type_draw: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = True
-    one_side_draw: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = True
-    different_type_draw: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
-    ] = True
 
 
 class TapFactory(ParameterizedAssetFactory, AssetFactory):
@@ -224,10 +215,6 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
             "roation_z": U(5.5, 7.0),
             "tap_height": U(0.5, 1),
             "base_radius": U(0.0, 0.3),
-            "hand_type_draw": True,
-            "hands_length_x": U(0.750, 1.25),
-            "one_side_draw": True,
-            "different_type_draw": True,
         }
 
     def _sample_materials(self) -> tuple[dict[str, Any], Any | None, Any | None]:
@@ -256,7 +243,6 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
             self._tap_material = materials["Tap"]
             self._scratch = scratch
             self._edge_wear = edge_wear
-        # NOTE: tap_head, roation_z, tap_height, and hands_length_x do not elicit a reliable visual change in exported geometry; sampled on self from seed, excluded from quartet sampling.
         with FixedSeed(params.seed):
             tap_head = U(0.7, 1.1)
             roation_z = U(5.5, 7.0)
@@ -276,17 +262,11 @@ class TapFactory(ParameterizedAssetFactory, AssetFactory):
             "Switch": switch,
             "Y": y,
             "hands_length_Y": hands_length_y,
-            "hand_type": params.hand_type_draw,
-            "one_side": params.one_side_draw,
-            "different_type": params.different_type_draw,
+            "hand_type": True,
+            "one_side": True,
+            "different_type": True,
             "length_one_side": length_one_side,
         }
-        for draw_key in (
-            "hand_type_draw",
-            "one_side_draw",
-            "different_type_draw",
-        ):
-            self.params.pop(draw_key, None)
         self.scratch = self._scratch
         self.edge_wear = self._edge_wear
         # NOTE: base_width effect varies with hand_type/one_side/different_type spawn branches; excluded from quartet sampling.

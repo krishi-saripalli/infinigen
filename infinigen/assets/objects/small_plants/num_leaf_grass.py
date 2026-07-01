@@ -228,24 +228,14 @@ def geo_face_colors(nw: NodeWrangler, **kwargs):
 
 
 class NumLeafGrassParameters(AssetParameters):
-    leaf_count: Annotated[
-        int,
-        Field(
-            json_schema_extra={
-                "editable": False,
-                "kind": "enum",
-                "choices": [2, 3, 4],
-            }
-        ),
-    ] = 3
     z_offset: Annotated[
-        float, Field(ge=-0.15, le=0.15, json_schema_extra={"editable": False})
+        float, Field(ge=-0.15, le=0.15, json_schema_extra={"editable": True})
     ] = 0.0
     stem_rotation: Annotated[
         float, Field(ge=0.05, le=0.25, json_schema_extra={"editable": False})
     ] = 0.15
     stem_leaf_scale: Annotated[
-        float, Field(ge=0.15, le=0.35, json_schema_extra={"editable": False})
+        float, Field(ge=0.15, le=0.35, json_schema_extra={"editable": True})
     ] = 0.25
     leaf_width: Annotated[
         float, Field(ge=0.85, le=1.1, json_schema_extra={"editable": False})
@@ -272,18 +262,17 @@ class NumLeafGrassFactory(ParameterizedAssetFactory, AssetFactory):
 
     @classmethod
     def _leaf_setup(
-        cls, params: NumLeafGrassParameters
+        cls, leaf_num: int, leaf_width: float, z_offset: float
     ) -> tuple[int, dict[str, float | int], float]:
-        leaf_num = params.leaf_count
         genome: dict[str, float | int] = {
-            "leaf_width": params.leaf_width,
+            "leaf_width": leaf_width,
             "width_rand": 0.1 if leaf_num == 2 else 0.05,
-            "z_scaling": params.z_offset,
+            "z_scaling": z_offset,
         }
         if leaf_num == 3:
-            genome["leaf_width"] = max(params.leaf_width, 1.0)
+            genome["leaf_width"] = max(leaf_width, 1.0)
         elif leaf_num == 4:
-            genome["leaf_width"] = min(params.leaf_width, 0.9)
+            genome["leaf_width"] = min(leaf_width, 0.9)
         factory_scale = 2.0 if leaf_num == 2 else 1.0
         return leaf_num, genome, factory_scale
 
@@ -295,7 +284,6 @@ class NumLeafGrassFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> NumLeafGrassParameters:
         return params.model_copy(
             update={
-                "leaf_count": 3,
                 "z_offset": float(normal(0, 0.05)),
                 "stem_rotation": 0.15,
                 "stem_leaf_scale": float(uniform(0.15, 0.35)),
@@ -307,12 +295,11 @@ class NumLeafGrassFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: NumLeafGrassParameters, *, spawn_scope: bool = True
     ) -> None:
-        # NOTE: leaf_num_draw was never wired (_leaf_setup uses leaf_count); leaf_count resampled in spawn path; sampled on self from seed, excluded from quartet sampling.
         with FixedSeed(params.seed):
             leaf_num_draw = uniform()
-            leaf_count = self._leaf_num_from_draw(leaf_num_draw)
-        leaf_num, genome, factory_scale = self._leaf_setup(
-            params.model_copy(update={"leaf_count": leaf_count})
+            leaf_num = self._leaf_num_from_draw(leaf_num_draw)
+        _, genome, factory_scale = self._leaf_setup(
+            leaf_num, params.leaf_width, params.z_offset
         )
         self.leaf_num = leaf_num
         self.leaf_genome = genome
@@ -345,11 +332,7 @@ class NumLeafGrassFactory(ParameterizedAssetFactory, AssetFactory):
             z_offset = float(normal(0, 0.05, size=(1,))[0])
             leaf_width = {2: 0.95, 3: 1.1, 4: 0.85}[leaf_num]
             _, genome, factory_leaf_scale = self._leaf_setup(
-                NumLeafGrassParameters(
-                    leaf_count=leaf_num,
-                    z_offset=z_offset,
-                    leaf_width=leaf_width,
-                )
+                leaf_num, leaf_width, z_offset
             )
             lf_seed = int(randint(0, 1000, size=(1,))[0])
             params["stem_rotation"] = 0.15

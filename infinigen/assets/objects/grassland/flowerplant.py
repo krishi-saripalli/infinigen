@@ -829,7 +829,7 @@ class FlowerPlantParameters(AssetParameters):
     leaf_seed: Annotated[int, Field(ge=0, le=1000, json_schema_extra={"editable": False})]
     flower_seed: Annotated[int, Field(ge=0, le=1000, json_schema_extra={"editable": False})]
     flower_rad: Annotated[
-        float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": False})
+        float, Field(ge=0.4, le=0.7, json_schema_extra={"editable": True})
     ]
 
 

@@ -30,6 +30,7 @@ from infinigen.core.placement.parameters import (
     ParameterizedAssetFactory,
 )
 from infinigen.core.tagging import tag_object
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.color import hsv2rgba
 
 
@@ -831,37 +832,28 @@ def geometry_plant_nodes(nw: NodeWrangler, **kwargs):
 
 class LeafBananaTreeParameters(AssetParameters):
     leaf_width: Annotated[
-        float, Field(ge=0.5, le=0.85, json_schema_extra={"editable": False})
+        float, Field(ge=0.5, le=0.85, json_schema_extra={"editable": True})
     ]
     leaf_h_wave_scale: Annotated[
-        float, Field(ge=0.02, le=0.2, json_schema_extra={"editable": False})
+        float, Field(ge=0.02, le=0.2, json_schema_extra={"editable": True})
     ]
     leaf_jigsaw_depth: Annotated[
         float, Field(ge=0.0, le=1.7, json_schema_extra={"editable": False})
     ]
     leaf_w_wave_scale: Annotated[
-        float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": False})
+        float, Field(ge=0.0, le=0.3, json_schema_extra={"editable": True})
     ]
     leaf_x_curvature: Annotated[
-        float, Field(ge=0.0, le=0.1, json_schema_extra={"editable": False})
-    ]
-    stem_color_h: Annotated[
-        float, Field(ge=0.25, le=0.32, json_schema_extra={"editable": False})
-    ]
-    stem_color_s: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})
-    ]
-    stem_color_v: Annotated[
-        float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})
+        float, Field(ge=0.0, le=0.1, json_schema_extra={"editable": True})
     ]
     has_jigsaw: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
     leaf_contour_profile: Annotated[
         str,
         Field(
             json_schema_extra={
-                "editable": False,
+                "editable": True,
                 "kind": "enum",
                 "choices": ["oval", "pear"],
             }
@@ -884,9 +876,6 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
             leaf_jigsaw_depth=uniform(0.8, 1.7),
             leaf_w_wave_scale=uniform(0.05, 0.25),
             leaf_x_curvature=uniform(0.0, 0.1),
-            stem_color_h=uniform(0.25, 0.32),
-            stem_color_s=uniform(0.8, 1.0),
-            stem_color_v=uniform(0.8, 1.0),
             has_jigsaw=True,
             leaf_contour_profile=str(np.random.choice(["oval", "pear"])),
         )
@@ -901,9 +890,6 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
                 "leaf_jigsaw_depth": uniform(0.8, 1.7),
                 "leaf_w_wave_scale": uniform(0.05, 0.25),
                 "leaf_x_curvature": uniform(0.0, 0.1),
-                "stem_color_h": uniform(0.25, 0.32),
-                "stem_color_s": uniform(0.8, 1.0),
-                "stem_color_v": uniform(0.8, 1.0),
                 "has_jigsaw": True,
                 "leaf_contour_profile": str(np.random.choice(["oval", "pear"])),
             }
@@ -912,13 +898,19 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: LeafBananaTreeParameters, *, spawn_scope: bool = True
     ) -> None:
+        with FixedSeed(params.seed):
+            stem_color_hsv = (
+                uniform(0.25, 0.32),
+                uniform(0.8, 1.0),
+                uniform(0.8, 1.0),
+            )
         self.geom_kwargs = self.update_params(
             leaf_width=params.leaf_width,
             leaf_h_wave_scale=params.leaf_h_wave_scale,
             leaf_jigsaw_depth=0.0 if not params.has_jigsaw else params.leaf_jigsaw_depth,
             leaf_w_wave_scale=params.leaf_w_wave_scale,
             leaf_x_curvature=params.leaf_x_curvature,
-            stem_color_hsv=(params.stem_color_h, params.stem_color_s, params.stem_color_v),
+            stem_color_hsv=stem_color_hsv,
             has_jigsaw=params.has_jigsaw,
             leaf_contour_profile=params.leaf_contour_profile,
         )
@@ -1075,12 +1067,7 @@ class LeafBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
 
 
 class PlantBananaTreeParameters(LeafBananaTreeParameters):
-    plant_z_rotate: Annotated[
-        float, Field(ge=-0.4, le=0.4, json_schema_extra={"editable": True})
-    ]
-    plant_scale: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": True})
-    ]
+    pass
 
 
 class PlantBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
@@ -1093,11 +1080,7 @@ class PlantBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
 
     def _sample_init_parameters(self, seed: int) -> PlantBananaTreeParameters:
         leaf_params = self.leaf_tropical_factory._sample_init_parameters(seed)
-        return PlantBananaTreeParameters(
-            **leaf_params.model_dump(),
-            plant_z_rotate=uniform(-0.4, 0.4),
-            plant_scale=uniform(0.8, 1.5),
-        )
+        return PlantBananaTreeParameters(**leaf_params.model_dump())
 
     def _sample_spawn_parameters(
         self, params: PlantBananaTreeParameters, seed: int, i: int
@@ -1109,11 +1092,7 @@ class PlantBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
         leaf_params = self.leaf_tropical_factory._sample_spawn_parameters(
             LeafBananaTreeParameters(**leaf_data), seed, i
         )
-        return PlantBananaTreeParameters(
-            **leaf_params.model_dump(),
-            plant_z_rotate=uniform(-0.4, 0.4),
-            plant_scale=uniform(0.8, 1.5),
-        )
+        return PlantBananaTreeParameters(**leaf_params.model_dump())
 
     def apply_parameters(
         self, params: PlantBananaTreeParameters, *, spawn_scope: bool = True
@@ -1125,13 +1104,15 @@ class PlantBananaTreeFactory(ParameterizedAssetFactory, AssetFactory):
         self.leaf_tropical_factory.apply_parameters(
             LeafBananaTreeParameters(**leaf_data), spawn_scope=spawn_scope
         )
-        s = params.plant_scale
+        with FixedSeed(params.seed):
+            plant_scale = uniform(0.8, 1.5)
+            plant_z_rotate = uniform(-0.4, 0.4)
         self.geom_kwargs = self.leaf_tropical_factory.geom_kwargs.copy()
         self.geom_kwargs.update(
             {
                 "plant_translation": (0.0, 0.0, 0.0),
-                "plant_z_rotate": params.plant_z_rotate,
-                "plant_scale": (s, s, s),
+                "plant_z_rotate": plant_z_rotate,
+                "plant_scale": (plant_scale, plant_scale, plant_scale),
             }
         )
         self._use_fixed_spawn_draws = spawn_scope

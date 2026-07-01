@@ -27,6 +27,7 @@ from infinigen.core.placement.parameters import (
     ParameterizedAssetFactory,
 )
 from infinigen.core.tagging import tag_object
+from infinigen.core.util.math import FixedSeed
 from infinigen.core.util.color import hsv2rgba
 
 
@@ -943,22 +944,16 @@ def geometry_palm_tree_leaf_nodes(nw: NodeWrangler, **kwargs):
 
 class LeafPalmTreeParameters(AssetParameters):
     leaf_x_curvature: Annotated[
-        float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": False})
+        float, Field(ge=0.0, le=0.8, json_schema_extra={"editable": True})
     ] = 0.4
     leaf_instance_curvature_ratio: Annotated[
-        float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": False})
+        float, Field(ge=0.3, le=0.6, json_schema_extra={"editable": True})
     ] = 0.45
     leaf_instance_width: Annotated[
-        float, Field(ge=0.07, le=0.15, json_schema_extra={"editable": False})
+        float, Field(ge=0.07, le=0.15, json_schema_extra={"editable": True})
     ] = 0.11
-    plant_z_rotate: Annotated[
-        float, Field(ge=-0.4, le=0.4, json_schema_extra={"editable": False})
-    ] = 0.0
-    plant_scale: Annotated[
-        float, Field(ge=0.8, le=1.5, json_schema_extra={"editable": False})
-    ] = 1.15
     leaf_instance_scale: Annotated[
-        float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": False})
+        float, Field(ge=0.5, le=0.7, json_schema_extra={"editable": True})
     ] = 0.6
 
 
@@ -1004,8 +999,6 @@ class LeafPalmTreeFactory(ParameterizedAssetFactory, AssetFactory):
                 "leaf_x_curvature": uniform(0.0, 0.8),
                 "leaf_instance_curvature_ratio": uniform(0.3, 0.6),
                 "leaf_instance_width": uniform(0.07, 0.15),
-                "plant_z_rotate": uniform(-0.4, 0.4),
-                "plant_scale": uniform(0.8, 1.5),
                 "leaf_instance_scale": uniform(0.5, 0.7),
             }
         )
@@ -1013,14 +1006,16 @@ class LeafPalmTreeFactory(ParameterizedAssetFactory, AssetFactory):
     def apply_parameters(
         self, params: LeafPalmTreeParameters, *, spawn_scope: bool = True
     ) -> None:
-        s = params.plant_scale
+        with FixedSeed(params.seed):
+            plant_scale = uniform(0.8, 1.5)
+            plant_z_rotate = uniform(-0.4, 0.4)
         self.geom_kwargs = self.update_params(
             leaf_x_curvature=params.leaf_x_curvature,
             leaf_instance_curvature_ratio=params.leaf_instance_curvature_ratio,
             leaf_instance_width=params.leaf_instance_width,
             plant_translation=(0.0, 0.0, 0.0),
-            plant_z_rotate=params.plant_z_rotate,
-            plant_scale=(s, s, s),
+            plant_z_rotate=plant_z_rotate,
+            plant_scale=(plant_scale, plant_scale, plant_scale),
             leaf_instance_scale=params.leaf_instance_scale,
         )
         self._use_fixed_spawn_draws = spawn_scope

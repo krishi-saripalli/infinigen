@@ -50,7 +50,11 @@ class ChairParameters(AssetParameters):
     seat_front: Annotated[float, Field(ge=1.0, le=1.2, json_schema_extra={"editable": True})]
     is_seat_round_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.6},
+        ),
     ]
     is_seat_subsurf_draw: Annotated[
         float,
@@ -65,31 +69,41 @@ class ChairParameters(AssetParameters):
     ]
     has_leg_x_bar_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.6},
+        ),
     ]
     has_leg_y_bar_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.6},
+        ),
     ]
     leg_offset_bar_low: Annotated[
-        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})
+        float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": False})
     ]
     leg_offset_bar_high: Annotated[
-        float, Field(ge=0.6, le=0.8, json_schema_extra={"editable": True})
+        float, Field(ge=0.6, le=0.8, json_schema_extra={"editable": False})
     ]
     has_arm_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.7},
+        ),
     ]
     panel_surface_same_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
-    ]
-    scratch_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
-    ]
-    edge_wear_draw: Annotated[
-        float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": False})
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": False, "kind": "draw_bool", "threshold": 0.3},
+        ),
     ]
     smoothness: Annotated[float, Field(ge=0.0, le=1.0, json_schema_extra={"editable": True})] = (
         0.0
@@ -153,6 +167,8 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
                 "edge_wear_prob": edge_wear_prob,
                 "scratch_fn": scratch_fn,
                 "edge_wear_fn": edge_wear_fn,
+                "scratch_draw": uniform(),
+                "edge_wear_draw": uniform(),
             }
 
     def _sample_chair_tier1(self) -> None:
@@ -183,8 +199,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         seat_mid = uniform(0.7, 0.8)
         seat_mid_x = uniform(seat_back + seat_mid * (1 - seat_back), 1)
         self._sample_chair_tier1()
-        scratch_draw = uniform()
-        edge_wear_draw = uniform()
         return ChairParameters(
             seed=seed,
             width=width,
@@ -208,8 +222,6 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
             leg_offset_bar_high=uniform(0.6, 0.8),
             has_arm_draw=uniform(),
             panel_surface_same_draw=uniform(),
-            scratch_draw=scratch_draw,
-            edge_wear_draw=edge_wear_draw,
         )
 
     def _sample_spawn_parameters(
@@ -285,12 +297,12 @@ class ChairFactory(ParameterizedAssetFactory, AssetFactory):
         self.panel_surface = internals["panel_surface"]
         self.scratch = (
             None
-            if params.scratch_draw > internals["scratch_prob"]
+            if internals["scratch_draw"] > internals["scratch_prob"]
             else internals["scratch_fn"]()
         )
         self.edge_wear = (
             None
-            if params.edge_wear_draw > internals["edge_wear_prob"]
+            if internals["edge_wear_draw"] > internals["edge_wear_prob"]
             else internals["edge_wear_fn"]()
         )
         self.clothes_scatter = NoApply()

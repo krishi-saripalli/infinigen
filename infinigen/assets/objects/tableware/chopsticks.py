@@ -33,23 +33,7 @@ class ChopsticksParameters(AssetParameters):
     has_guard: Annotated[
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     thickness: float = Field(default=0.01, json_schema_extra={"editable": False})
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     parallel_style: Annotated[
         bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
     ] = True
@@ -113,7 +97,6 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
         }
 
     def _sample_init_parameters(self, seed: int) -> ChopsticksParameters:
-        base = sample_tableware_base(seed)
         with FixedSeed(seed):
             self._y_length = uniform(0.01, 0.02)
             is_parallel = bool(uniform(0, 1) < 0.6)
@@ -125,8 +108,6 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
             y_shrink=log_uniform(0.2, 0.8),
             is_square=bool(uniform(0, 1) < 0.5),
             has_guard=bool(uniform(0, 1) < 0.4),
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
             **layout,
         )
 
@@ -161,8 +142,6 @@ class ChopsticksFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=self._lower_thresh,
             scale=self.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             has_guard=params.has_guard,
             guard_depth=params.thickness * 2 if params.has_guard else 0.0,
         )

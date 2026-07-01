@@ -213,12 +213,6 @@ class TableCocktailParameters(AssetParameters):
     top_thickness: Annotated[
         float, Field(ge=0.02, le=0.05, json_schema_extra={"editable": False})
     ]
-    strecher_increament: Annotated[
-        int,
-        Field(
-            json_schema_extra={"editable": False, "kind": "enum", "choices": [0, 1, 2]}
-        ),
-    ] = 1
 
 
 class TableCocktailFactory(ParameterizedAssetFactory, AssetFactory):
@@ -302,7 +296,7 @@ class TableCocktailFactory(ParameterizedAssetFactory, AssetFactory):
             "Leg Diameter": spawn["leg_diameter"],
             "Leg Curve Control Points": spawn["leg_curve_ctrl_pts"],
             "Strecher Relative Pos": self.strecher_relative_pos,
-            "Strecher Increament": params.strecher_increament,
+            "Strecher Increament": self.strecher_increament,
         }
 
     def _resolve_x(self, seed: int) -> float:
@@ -319,7 +313,6 @@ class TableCocktailFactory(ParameterizedAssetFactory, AssetFactory):
         return TableCocktailParameters(
             seed=seed,
             top_thickness=uniform(0.02, 0.05),
-            strecher_increament=1,
         )
 
     def _sample_spawn_parameters(
@@ -345,6 +338,7 @@ class TableCocktailFactory(ParameterizedAssetFactory, AssetFactory):
             self.top_vertical_fillet_ratio = uniform(0.1, 0.3)
             self.leg_placement_bottom_relative_scale = uniform(1.1, 1.3)
             self.strecher_relative_pos = uniform(0.2, 0.6)
+            self.strecher_increament = 1
         # NOTE: x resampled via cached _geometry_spawn in spawn path overwrote edits; sampled on self from seed, excluded from quartet sampling.
         self._x = self._resolve_x(params.seed)
         self.dimensions = self._dimensions

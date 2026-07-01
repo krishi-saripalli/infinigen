@@ -93,7 +93,11 @@ class WindowParameters(AssetParameters):
     ]
     curtain_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={"editable": True, "kind": "draw_bool", "threshold": 0.3},
+        ),
     ] = 0.0
 
 

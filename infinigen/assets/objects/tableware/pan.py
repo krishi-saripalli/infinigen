@@ -57,22 +57,6 @@ class PanParameters(AssetParameters):
     ]
     scale: Annotated[float, Field(ge=0.1, le=0.15, json_schema_extra={"editable": True})]
     lower_thresh: Annotated[float, Field(ge=0.5, le=0.8, json_schema_extra={"editable": True})]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     n_vertices: Annotated[float, Field(ge=4.0, le=8.0, json_schema_extra={"editable": True})] = (
         4.0
     )
@@ -124,8 +108,6 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
             guard_depth_mult=log_uniform(1.0, 2.0),
             scale=log_uniform(0.1, 0.15),
             lower_thresh=base["lower_thresh"],
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
         )
 
     def _sample_spawn_parameters(
@@ -150,8 +132,6 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=params.lower_thresh,
             scale=params.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             metal_color=None,
         )
         self.r_expand = params.r_expand

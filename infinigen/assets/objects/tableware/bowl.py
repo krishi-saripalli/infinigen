@@ -29,27 +29,11 @@ class BowlParameters(AssetParameters):
     thickness_ratio: Annotated[
         float, Field(ge=0.01, le=0.03, json_schema_extra={"editable": True})
     ]
-    x_mid: Annotated[float, Field(ge=0.8, le=0.95, json_schema_extra={"editable": False})]
+    x_mid: Annotated[float, Field(ge=0.8, le=0.95, json_schema_extra={"editable": True})]
     z_length: Annotated[float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": True})]
     has_inside: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ] = True
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ] = 0.0
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ] = 0.0
     bevel_segments: Annotated[int, Field(ge=2, le=4, json_schema_extra={"editable": False})] = (
         2
     )
@@ -65,15 +49,12 @@ class BowlFactory(ParameterizedAssetFactory, TablewareFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BowlParameters:
-        base = sample_tableware_base(seed)
         return BowlParameters(
             seed=seed,
             thickness_ratio=uniform(0.01, 0.03),
             x_mid=uniform(0.8, 0.95),
             z_length=log_uniform(0.4, 0.8),
             has_inside=uniform() < 0.5,
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
         )
 
     def _sample_spawn_parameters(
@@ -94,8 +75,6 @@ class BowlFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=self._lower_thresh,
             scale=self.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
         )
         self.has_inside = params.has_inside
         # NOTE: x_bottom and z_bottom do not elicit a clear visual change in exported geometry; excluded from quartet sampling.

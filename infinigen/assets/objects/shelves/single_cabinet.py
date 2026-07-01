@@ -308,12 +308,9 @@ class SingleCabinetBaseFactory(AssetFactory):
 
 
 class SingleCabinetParameters(AssetParameters):
-    depth: Annotated[float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": False})]
+    depth: Annotated[float, Field(ge=0.25, le=0.35, json_schema_extra={"editable": True})]
     width: Annotated[float, Field(ge=0.3, le=0.7, json_schema_extra={"editable": True})]
     height: Annotated[float, Field(ge=0.9, le=1.8, json_schema_extra={"editable": True})]
-    bottom_board_height: Annotated[
-        float, Field(ge=0.06, le=0.10, json_schema_extra={"editable": False})
-    ]
 
 
 def _single_cabinet_legacy_init(inst: SingleCabinetFactory, seed: int, coarse: bool) -> None:
@@ -335,13 +332,13 @@ class SingleCabinetFactory(ParameterizedAssetFactory, SingleCabinetBaseFactory):
     def _apply_geometry_parameters(self, params: SingleCabinetParameters) -> None:
         depth, width, height = params.depth, params.width, params.height
         self.dims = (depth, width, height)
-        num_h = max(int((height - params.bottom_board_height) / 0.3), 1)
+        num_h = max(int((height - self.bottom_board_height) / 0.3), 1)
         self.shelf_params = {
             "Dimensions": (depth, width, height),
-            "bottom_board_height": params.bottom_board_height,
+            "bottom_board_height": self.bottom_board_height,
             "shelf_depth": depth - 0.01,
             "shelf_cell_height": [
-                (height - params.bottom_board_height) / num_h for _ in range(num_h)
+                (height - self.bottom_board_height) / num_h for _ in range(num_h)
             ],
             "shelf_cell_width": [width],
             "side_board_thickness": self.side_board_thickness,
@@ -388,7 +385,6 @@ class SingleCabinetFactory(ParameterizedAssetFactory, SingleCabinetBaseFactory):
             depth=uniform(0.25, 0.35),
             width=uniform(0.3, 0.7),
             height=uniform(0.9, 1.8),
-            bottom_board_height=0.083,
         )
 
     def apply_parameters(
@@ -400,7 +396,7 @@ class SingleCabinetFactory(ParameterizedAssetFactory, SingleCabinetBaseFactory):
             self.mat_params = {}
             self.shelf_fac = LargeShelfBaseFactory(params.seed)
             self.door_fac = CabinetDoorBaseFactory(params.seed)
-            # NOTE: side_board_thickness does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
+            self.bottom_board_height = 0.083
             self.side_board_thickness = uniform(0.015, 0.025)
             self._apply_geometry_parameters(params)
             # NOTE: use_short_door does not elicit a clear visual change in exported geometry; excluded from quartet sampling.

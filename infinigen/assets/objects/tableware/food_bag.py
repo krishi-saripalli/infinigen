@@ -37,7 +37,7 @@ class FoodBagParameters(AssetParameters):
         bool, Field(json_schema_extra={"editable": True, "kind": "bool"})
     ]
     extrude_length: Annotated[
-        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": False})
+        float, Field(ge=0.05, le=0.1, json_schema_extra={"editable": True})
     ]
 
 

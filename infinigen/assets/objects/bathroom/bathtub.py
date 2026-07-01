@@ -45,8 +45,8 @@ from infinigen.core.util.random import weighted_sample
 
 class BathtubParameters(AssetParameters):
     width: Annotated[float, Field(ge=1.5, le=2.0, json_schema_extra={"editable": True})]
-    size: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": False})]
-    depth: Annotated[float, Field(ge=0.55, le=0.7, json_schema_extra={"editable": False})]
+    size: Annotated[float, Field(ge=0.8, le=1.0, json_schema_extra={"editable": True})]
+    depth: Annotated[float, Field(ge=0.55, le=0.7, json_schema_extra={"editable": True})]
     bathtub_type: Annotated[
         str,
         Field(
@@ -119,22 +119,6 @@ class BathtubParameters(AssetParameters):
             json_schema_extra={"editable": False},
         ),
     ]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
     leg_bevel_factor: Annotated[
         float,
         Field(
@@ -188,8 +172,6 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
         self.init_legacy_parameters()
 
     def _sample_init_parameters(self, seed: int) -> BathtubParameters:
-        scratch_draw = uniform()
-        edge_wear_draw = uniform()
         return BathtubParameters(
             seed=seed,
             width=uniform(1.5, 2),
@@ -208,8 +190,6 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
             hole_x_ratio=uniform(0.35, 0.4),
             taper_factor=uniform(-0.1, 0.1),
             stretch_factor=uniform(-0.2, 0.2),
-            scratch_draw=scratch_draw,
-            edge_wear_draw=edge_wear_draw,
         )
 
     def _sample_spawn_parameters(
@@ -244,11 +224,13 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
         # NOTE: hole_radius sampled on self from seed; excluded from quartet sampling (uniform scale normalized away in point clouds).
         with FixedSeed(params.seed):
             self.hole_radius = uniform(0.015, 0.02)
+            scratch_draw = uniform()
+            edge_wear_draw = uniform()
         self.scratch = (
-            None if params.scratch_draw > scratch_prob else scratch_fn()
+            None if scratch_draw > scratch_prob else scratch_fn()
         )
         self.edge_wear = (
-            None if params.edge_wear_draw > edge_wear_prob else edge_wear_fn()
+            None if edge_wear_draw > edge_wear_prob else edge_wear_fn()
         )
         self.leg_bevel_factor = params.leg_bevel_factor
         self.freestanding_z_factor = params.freestanding_z_factor

@@ -21,6 +21,7 @@ from infinigen.core.placement.factory import AssetFactory
 from infinigen.core.placement.parameters import AssetParameters, ParameterizedAssetFactory
 from infinigen.core.tagging import tag_object
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 from infinigen.infinigen_gpl.surfaces import snow
 
 
@@ -96,7 +97,7 @@ class RaindropParameters(AssetParameters):
         int, Field(ge=3, le=6, json_schema_extra={"editable": False})
     ] = 5
     curve_depth: Annotated[
-        float, Field(ge=0.08, le=0.22, json_schema_extra={"editable": False})
+        float, Field(ge=0.08, le=0.22, json_schema_extra={"editable": True})
     ] = 0.15
     scale_x: Annotated[
         float, Field(ge=0.7, le=1.3, json_schema_extra={"editable": False})
@@ -174,15 +175,9 @@ class RaindropFactory(ParameterizedAssetFactory, AssetFactory):
 
 
 class DustMoteParameters(AssetParameters):
-    radius: Annotated[
-        float, Field(ge=0.3, le=2.0, json_schema_extra={"editable": False})
-    ] = 1.0
     subdivisions: Annotated[
         int, Field(ge=1, le=4, json_schema_extra={"editable": False})
     ] = 2
-    scale: Annotated[
-        float, Field(ge=0.5, le=2.0, json_schema_extra={"editable": False})
-    ] = 1.0
 
 
 class DustMoteFactory(ParameterizedAssetFactory, AssetFactory):
@@ -200,9 +195,7 @@ class DustMoteFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> DustMoteParameters:
         return params.model_copy(
             update={
-                "radius": uniform(0.3, 2.0),
                 "subdivisions": int(randint(1, 5)),
-                "scale": uniform(0.5, 2.0),
             }
         )
 
@@ -211,9 +204,10 @@ class DustMoteFactory(ParameterizedAssetFactory, AssetFactory):
     ) -> None:
         self._use_fixed_spawn_draws = spawn_scope
         if spawn_scope:
-            self._radius = params.radius
             self._subdivisions = params.subdivisions
-            self._scale = params.scale
+            with FixedSeed(params.seed):
+                self._radius = uniform(0.3, 2.0)
+                self._scale = uniform(0.5, 2.0)
 
     def create_asset(self, **kwargs):
         radius = self._radius if self._use_fixed_spawn_draws else uniform(0.3, 2.0)
@@ -241,7 +235,7 @@ class SnowflakeParameters(AssetParameters):
         float, Field(ge=0.3, le=2.0, json_schema_extra={"editable": False})
     ] = 1.0
     vertices: Annotated[
-        int, Field(ge=6, le=12, json_schema_extra={"editable": False})
+        int, Field(ge=6, le=12, json_schema_extra={"editable": True})
     ] = 6
     scale_x: Annotated[
         float, Field(ge=0.5, le=2.0, json_schema_extra={"editable": False})

@@ -33,22 +33,6 @@ class PlateParameters(AssetParameters):
     z_mid_ratio: Annotated[
         float, Field(ge=0.3, le=0.8, json_schema_extra={"editable": False})
     ]
-    scratch_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
-    edge_wear_draw: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            json_schema_extra={"editable": False, "kind": "draw_bool"},
-        ),
-    ]
 
 
 class PlateFactory(ParameterizedAssetFactory, TablewareFactory):
@@ -70,8 +54,6 @@ class PlateFactory(ParameterizedAssetFactory, TablewareFactory):
             x_mid=uniform(0.3, 1.0),
             z_length=z_length,
             z_mid_ratio=uniform(0.3, 0.8),
-            scratch_draw=base["scratch_draw"],
-            edge_wear_draw=base["edge_wear_draw"],
         )
 
     def apply_parameters(
@@ -88,8 +70,6 @@ class PlateFactory(ParameterizedAssetFactory, TablewareFactory):
             seed=params.seed,
             lower_thresh=self._lower_thresh,
             scale=self.scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
         )
         self.x_mid = params.x_mid * self.x_end
         self.z_length = params.z_length
