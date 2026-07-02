@@ -55,8 +55,12 @@ class ChopsticksParameters(AssetParameters):
     crossed_loc_y: Annotated[
         float, Field(ge=-0.2, le=0.2, json_schema_extra={"editable": False})
     ] = 0.0
+    # log_uniform(pi/8, pi/4) * sign(crossed_loc_y) can land in either
+    # [-pi/4, -pi/8] or [pi/8, pi/4] depending on the sampled layout's sign,
+    # so the bound must cover both branches (was ge=0.392699, positive-only,
+    # rejecting the negative branch).
     crossed_rot: Annotated[
-        float, Field(ge=0.392699, le=0.785398, json_schema_extra={"editable": False})
+        float, Field(ge=-0.785398, le=0.785398, json_schema_extra={"editable": False})
     ] = 0.392699
 
 

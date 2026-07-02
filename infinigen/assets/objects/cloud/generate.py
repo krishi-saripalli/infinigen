@@ -57,14 +57,21 @@ class CloudParameters(AssetParameters):
     rotate_angle: Annotated[
         float, Field(ge=0.0, le=0.785398, json_schema_extra={"editable": False})
     ] = 0.0
+    # scale_x/y/z are the cloud's overall 3-axis size + noise scale. Their
+    # schema bounds span the whole cloud family (cumulus scale_z ~16-32,
+    # cumulonimbus up to 512), so for any single subtype the sweep snaps
+    # scale to a value ~16x out of its own distribution, collapsing the
+    # cloud into a degenerate thin sliver. They're also largely removed by
+    # bbox normalization. The lobe-profile params below (y_lobe_*) are the
+    # real, in-distribution shape DOFs, so restrict sampling to those.
     scale_x: Annotated[
-        float, Field(ge=28.818331, le=1024.0, json_schema_extra={"editable": True})
+        float, Field(ge=28.818331, le=1024.0, json_schema_extra={"editable": False})
     ] = 46.0
     scale_y: Annotated[
-        float, Field(ge=0.5, le=2048.0, json_schema_extra={"editable": True})
+        float, Field(ge=0.5, le=2048.0, json_schema_extra={"editable": False})
     ] = 1.0
     scale_z: Annotated[
-        float, Field(ge=16.0, le=512.0, json_schema_extra={"editable": True})
+        float, Field(ge=16.0, le=512.0, json_schema_extra={"editable": False})
     ] = 24.0
     second_pt_y: Annotated[
         float, Field(ge=0.5, le=0.85, json_schema_extra={"editable": False})

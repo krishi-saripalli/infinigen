@@ -28,11 +28,27 @@ from .growth import MushroomGrowthFactory
 class MushroomParameters(AssetParameters):
     maker_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={
+                "editable": True,
+                "kind": "draw_bool",
+                "threshold": 0.5,  # maker = makers[0 if maker_draw < 0.5 else 1]
+            },
+        ),
     ]
     lowered_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={
+                "editable": True,
+                "kind": "draw_bool",
+                "threshold": 0.5,  # lowered = lowered_draw < 0.5
+            },
+        ),
     ]
     tolerant_length: Annotated[
         float, Field(ge=0.0, le=0.2, json_schema_extra={"editable": True})

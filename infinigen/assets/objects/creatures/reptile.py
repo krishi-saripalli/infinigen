@@ -18,12 +18,10 @@ from numpy.random import uniform as U
 from pydantic import Field
 
 from infinigen.assets.composition import material_assignments
-from infinigen.assets.materials.creature import (
-    bone,
-    eyeball,
-    nose,
-    tongue,
-)
+from infinigen.assets.materials.creature.bone import Bone
+from infinigen.assets.materials.creature.eyeball import Eyeball
+from infinigen.assets.materials.creature.nose import Nose
+from infinigen.assets.materials.creature.tongue import Tongue
 from infinigen.assets.objects.creatures import parts
 from infinigen.assets.objects.creatures.util import animation as creature_animation
 from infinigen.assets.objects.creatures.util import creature, genome, joining
@@ -370,7 +368,6 @@ def frog_genome(p: FrogParameters | None = None):
     speed_m_s = p.speed_m_s if p is not None else 0.5
     return genome.CreatureGenome(
         parts=head,
-        postprocess_func=reptile_postprocessing,
         postprocess_params=dict(
             animation=dict(mode="swim", speed_m_s=speed_m_s),
         ),
@@ -483,25 +480,47 @@ def animate_lizard_run(root, arma, params, ik_targets):
     # creature_animation.animate_run(root, arma, ik_targets)
 
 
-def reptile_postprocessing(body_parts, extras, params):
+def _split_root(root):
+    # Mirror joining.join_and_rig_parts' own body/extra split so these
+    # postprocess funcs work with the current framework, which invokes
+    # postprocess_func(root) with a single argument (the older API passed
+    # (body_parts, extras, params) directly).
+    body_parts = [o for o in root.children if o.type == "MESH"]
+    extras = [
+        o
+        for o in butil.iter_object_tree(root)
+        if o not in body_parts and o is not root
+    ]
+    return body_parts, extras
+
+
+def reptile_postprocessing(root):
+    body_parts, extras = _split_root(root)
+
     def get_extras(k):
         return [o for o in extras if k in o.name]
 
-    main_template = weighted_sample(material_assignments.reptile)
+    # weighted_sample returns the material *class*; instantiate it before
+    # apply() (matches how fish.py uses weighted_sample(...)()).
+    main_template = weighted_sample(material_assignments.reptile)()
     body = body_parts + get_extras("BodyExtra")
     main_template.apply(body)
 
-    tongue.apply(get_extras("Tongue"))
-    bone.apply(get_extras("Horn"))
-    eyeball.apply(get_extras("Eyeball"), shader_kwargs={"coord": "X"})
-    nose.apply(get_extras("Nose"))
+    Tongue().apply(get_extras("Tongue"))
+    Bone().apply(get_extras("Horn"))
+    Eyeball().apply(get_extras("Eyeball"), shader_kwargs={"coord": "X"})
+    Nose().apply(get_extras("Nose"))
 
 
-def chameleon_postprocessing(body_parts, extras, params):
+def chameleon_postprocessing(root):
+    body_parts, extras = _split_root(root)
+
     def get_extras(k):
         return [o for o in extras if k in o.name]
 
-    main_template = weighted_sample(material_assignments.reptile)
+    # weighted_sample returns the material *class*; instantiate it before
+    # apply() (matches how fish.py uses weighted_sample(...)()).
+    main_template = weighted_sample(material_assignments.reptile)()
     body = body_parts + get_extras("BodyExtra")
     main_template.apply(body)
 

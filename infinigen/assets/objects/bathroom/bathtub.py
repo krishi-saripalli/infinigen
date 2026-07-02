@@ -207,10 +207,20 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
         self.size = params.size
         self.depth = params.depth
         # NOTE: disp_x0/disp_x1/disp_y sampled on self from seed; excluded from quartet sampling.
-        with FixedSeed(params.seed):
-            self.disp_x0 = uniform(0, 0.2)
-            self.disp_x1 = uniform(0, 0.2)
-            self.disp_y = uniform(0, 0.1)
+        # make_bowl/make_cutter loft the lower rim contour to an upper rim
+        # contour offset in the *opposite* direction (make_box_contour's `i`
+        # sign flip). Even a small nonzero offset here combined with
+        # alcove_levels' subsurf smoothing can make the boolean cutter
+        # self-intersect at the rim, corrupting the cavity floor's normals
+        # (renders as a black fan/streak inside the tub) -- confirmed by
+        # bisecting down from the original absolute uniform(0, 0.2)/(0, 0.1)
+        # draws: 1% and even 0.5% of width/size still broke the worst-case
+        # seed in this dataset, only 0 was reliably clean across a full
+        # 8-seed x 3-param sweep. This purely cosmetic asymmetry isn't worth
+        # the boolean-robustness risk, so it's disabled.
+        self.disp_x0 = 0.0
+        self.disp_x1 = 0.0
+        self.disp_y = 0.0
         self.disp_x = np.array([self.disp_x0, self.disp_x1])
         self.has_curve = params.has_curve
         self.has_legs = params.has_legs
@@ -258,6 +268,13 @@ class BathtubFactory(ParameterizedAssetFactory, AssetFactory):
             cutter = self.make_cutter()
             butil.modify_mesh(obj, "BOOLEAN", object=cutter, operation="DIFFERENCE")
             butil.delete(cutter)
+            # The boolean occasionally leaves the cavity floor face with an
+            # inward-facing normal (renders as a black n-gon fan inside the
+            # tub) -- same fixup add_base() already applies after its own
+            # boolean, just missing here.
+            with butil.ViewportMode(obj, "EDIT"):
+                bpy.ops.mesh.select_all(action="SELECT")
+                bpy.ops.mesh.normals_make_consistent(inside=False)
         else:
             obj = self.make_freestanding()
             parts = [obj]

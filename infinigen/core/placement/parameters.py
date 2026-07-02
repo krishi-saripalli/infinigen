@@ -100,7 +100,8 @@ class AssetParameters(BaseModel):
         if kind == "bool":
             return [not current]
         if kind == "draw_bool":
-            threshold = float(_field_extra(field_info).get("threshold", 0.5))
+            # NOTE: not using get() because we want to throw if the threshold is not set
+            threshold = float(_field_extra(field_info)["threshold"])
             return [0.0 if float(current) >= threshold else 1.0]
         if kind == "enum":
             return [c for c in _field_choices(field_info) if c != current]
@@ -109,7 +110,7 @@ class AssetParameters(BaseModel):
             return []
         low, high = bounds
         if isinstance(current, int):
-            return _integer_points(low, high, current, max_int_steps)
+            return _integer_points(int(low), int(high), current, max_int_steps)
         return [high if (high - current) >= (current - low) else low]
 
 

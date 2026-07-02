@@ -128,7 +128,12 @@ class GrassesMonocotFactory(ParameterizedAssetFactory, MonocotGrowthFactory):
                 self.stem_offset = uniform(1.5, 2.0)
             self.z_scale = uniform(1.0, 1.2)
         self.angle = params.angle
-        self.z_drag = params.z_drag
+        if isinstance(params, MaizeMonocotParameters):
+            # MaizeMonocotParameters has no z_drag field; MaizeMonocotFactory.
+            # apply_parameters overrides self.z_drag right after this call.
+            self.z_drag = 0.0
+        else:
+            self.z_drag = params.z_drag
         if isinstance(params, MaizeMonocotParameters):
             # NOTE: min_y_angle does not elicit a clear visual change in exported geometry; excluded from quartet sampling.
             with FixedSeed(params.seed):

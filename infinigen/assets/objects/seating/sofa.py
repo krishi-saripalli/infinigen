@@ -1493,8 +1493,11 @@ def _build_sofa_geometry_params(
         arm_width = params.arm_width
         footrest = False
         seat_sections = 1
-        backrest_width = params.backrest_width
-        backrest_angle = params.backrest_angle
+        # ArmChairParameters has no backrest_width/backrest_angle fields; the
+        # caller (ArmChairFactory.apply_parameters) overrides these keys
+        # right after this call with its own locally-sampled values.
+        backrest_width = 0.0
+        backrest_angle = 0.0
         arm_style = params.arm_style
         round_legs = params.round_legs
     return {
@@ -1636,6 +1639,18 @@ class ArmChairFactory(SofaFactory):
             arm_style=leaf["arm_style"],
             round_legs=leaf["round_legs"],
         )
+
+    def _sample_spawn_parameters(
+        self, params: ArmChairParameters, seed: int, i: int
+    ) -> ArmChairParameters:
+        # ArmChairParameters has no depth field (sampled locally in
+        # apply_parameters instead); mirror SofaFactory's caching using that.
+        with FixedSeed(params.seed):
+            depth = uniform(0.9, 1.1)
+        dimensions = (params.width, depth, params.height)
+        with FixedSeed(seed + i):
+            self._geometry_spawn = _sample_sofa_geometry_spawn_state(dimensions)
+        return params
 
     def apply_parameters(
         self, params: ArmChairParameters, *, spawn_scope: bool = True

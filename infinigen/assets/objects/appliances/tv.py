@@ -277,7 +277,12 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
         butil.apply_transform(obj, True)
         obj.scale = self.total_width / 2, self.depth / 2, self.total_height / 2
         butil.apply_transform(obj)
-        butil.modify_mesh(obj, "BEVEL", width=self.screen_bevel_width, segments=8)
+        # A zero-width bevel is a no-op; Blender auto-disables it, and
+        # modifier_apply refuses to apply a disabled modifier -- which the
+        # sweep can trigger since screen_bevel_width's range includes 0
+        # (ge=0.0) and the swept-to-extreme value can land exactly there.
+        if self.screen_bevel_width > 0:
+            butil.modify_mesh(obj, "BEVEL", width=self.screen_bevel_width, segments=8)
         if not self.has_depth_extrude:
             return obj
         with butil.ViewportMode(obj, "EDIT"):
@@ -404,7 +409,10 @@ class TVFactory(ParameterizedAssetFactory, AssetFactory):
 
 
 class MonitorParameters(TVParameters):
-    pass
+    # MonitorFactory re-samples width from log_uniform(0.4, 0.8) -- a
+    # monitor is a smaller product category than a TV -- so it needs its
+    # own bound instead of inheriting TVParameters' width (ge=0.6, le=2.1).
+    width: Annotated[float, Field(ge=0.4, le=0.8, json_schema_extra={"editable": True})]
 
 
 class MonitorFactory(TVFactory):

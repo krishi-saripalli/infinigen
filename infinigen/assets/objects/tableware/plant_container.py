@@ -21,7 +21,11 @@ from infinigen.assets.objects.small_plants import (
     SpiderPlantFactory,
     SucculentFactory,
 )
-from infinigen.assets.objects.tableware.pot import PotFactory, PotParameters
+from infinigen.assets.objects.tableware.pot import (
+    _POT_TIER1_FIELDS,
+    PotFactory,
+    PotParameters,
+)
 from infinigen.assets.objects.tableware.base import (
     apply_tableware_from_draws,
     sample_tableware_base,
@@ -48,7 +52,10 @@ class PlantPotParameters(PotParameters):
     pass
 
 
-for _field in ("scale", "r_mid", "thickness"):
+# Subclassing does not inherit a parent's model_fields.pop() (pydantic
+# recomputes fields for the subclass from the original annotations), so
+# PotParameters's _POT_TIER1_FIELDS removal must be re-applied here too.
+for _field in (*_POT_TIER1_FIELDS, "scale", "r_mid", "thickness"):
     PlantPotParameters.model_fields.pop(_field, None)
 PlantPotParameters.model_rebuild(force=True)
 
@@ -87,8 +94,6 @@ class PlantPotFactory(PotFactory):
             seed=params.seed,
             lower_thresh=lower_thresh,
             scale=pan_scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             metal_color=None,
         )
         self.depth = params.depth
@@ -96,6 +101,7 @@ class PlantPotFactory(PotFactory):
         self.scale = pan_scale
         self.has_bar = False
         self.has_handle = False
+        self.has_handle_hole = False
         self.has_guard = False
         with FixedSeed(params.seed):
             # NOTE: r_mid is not wired to exported geometry; excluded from quartet sampling.

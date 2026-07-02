@@ -134,6 +134,9 @@ class PanFactory(ParameterizedAssetFactory, TablewareFactory):
             scale=params.scale,
             metal_color=None,
         )
+        # apply_tableware_from_draws doesn't set thickness; make_base reads
+        # self.thickness (solidify), and it's an editable param here.
+        self.thickness = params.thickness
         self.r_expand = params.r_expand
         self.depth = params.depth
         self.r_mid = params.r_mid

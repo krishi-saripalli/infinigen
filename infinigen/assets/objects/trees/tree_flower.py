@@ -952,7 +952,12 @@ class TreeFlowerFactory(ParameterizedAssetFactory, AssetFactory):
             seed=seed,
             rad=rad,
             pct_inner=pct_inner,
-            curl=np.deg2rad(normal(30, 50)),
+            # normal(30, 50) is unbounded and regularly lands outside the
+            # field's declared valid range (15-140 deg, matching every
+            # other angle field in this class being a clamped/bounded
+            # draw); clip to the schema's own bounds (same fix as
+            # flower.py's identical curl field).
+            curl=np.deg2rad(np.clip(normal(30, 50), 15.0, 140.0)),
             min_angle=min_angle,
             max_angle=max_angle,
         )

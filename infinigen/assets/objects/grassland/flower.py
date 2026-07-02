@@ -907,7 +907,10 @@ def geo_flower(nw, petal_material, center_material):
 
 
 class FlowerParameters(AssetParameters):
-    rad: Annotated[float, Field(ge=0.05, le=0.5, json_schema_extra={"editable": True})]
+    # 0.05-0.5 covers the standalone flower generator's own rad=0.15
+    # default, but flowerplant.py nests FlowerFactory with rad drawn from
+    # uniform(0.4, 0.7) for its larger blooms -- widen to cover both.
+    rad: Annotated[float, Field(ge=0.05, le=0.7, json_schema_extra={"editable": True})]
     pct_inner: Annotated[float, Field(ge=0.05, le=0.4, json_schema_extra={"editable": True})]
     seed_size: Annotated[
         float, Field(ge=0.005, le=0.01, json_schema_extra={"editable": True})
@@ -942,7 +945,11 @@ class FlowerFactory(ParameterizedAssetFactory, AssetFactory):
             pct_inner=pct_inner,
             seed_size=uniform(0.005, 0.01),
             wrinkle=uniform(0.003, 0.02),
-            curl=np.deg2rad(normal(30, 50)),
+            # normal(30, 50) is unbounded and regularly lands outside the
+            # field's declared valid range (15-140 deg, matching every
+            # other angle field in this class being a clamped/bounded
+            # draw); clip to the schema's own bounds.
+            curl=np.deg2rad(np.clip(normal(30, 50), 15.0, 140.0)),
             min_angle=min_angle,
             max_angle=max_angle,
         )

@@ -58,14 +58,30 @@ class ChairParameters(AssetParameters):
     ]
     is_seat_subsurf_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={
+                "editable": True,
+                "kind": "draw_bool",
+                "threshold": 0.5,  # is_seat_subsurf = is_seat_subsurf_draw < 0.5
+            },
+        ),
     ]
     leg_thickness: Annotated[float, Field(ge=0.04, le=0.06, json_schema_extra={"editable": True})]
     limb_profile: Annotated[float, Field(ge=1.5, le=2.5, json_schema_extra={"editable": True})]
     leg_height: Annotated[float, Field(ge=0.45, le=0.5, json_schema_extra={"editable": True})]
     is_leg_round_draw: Annotated[
         float,
-        Field(ge=0.0, le=1.0, json_schema_extra={"editable": True, "kind": "draw_bool"}),
+        Field(
+            ge=0.0,
+            le=1.0,
+            json_schema_extra={
+                "editable": True,
+                "kind": "draw_bool",
+                "threshold": 0.5,  # is_leg_round = is_leg_round_draw < 0.5
+            },
+        ),
     ]
     has_leg_x_bar_draw: Annotated[
         float,

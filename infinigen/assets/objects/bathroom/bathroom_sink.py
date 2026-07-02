@@ -38,7 +38,7 @@ class BathroomSinkParameters(AssetParameters):
     size_ratio: Annotated[float, Field(ge=0.55, le=0.8, json_schema_extra={"editable": True})]
     depth_ratio: Annotated[float, Field(ge=0.2, le=0.4, json_schema_extra={"editable": True})]
     is_stand_circular: Annotated[
-        bool, Field(json_schema_extra={"editable": False, "kind": "bool"})
+        bool, Field(json_schema_extra={"editable": False, "kind": "draw_bool" , "threshold": 0.5})
     ] = False
     sink_types: Annotated[
         str,
@@ -62,8 +62,18 @@ def _init_bathroom_sink_state(
             ["alcove", "freestanding"], p=prob / prob.sum()
         )
         inst.contour_fn = inst.make_box_contour
-        disp_x0 = uniform(0, 0.2)
-        inst.disp_y = uniform(0, 0.1)
+        # BathtubFactory draws these as absolute values (0-0.2 / 0-0.1) to
+        # give the bowl an asymmetric rim (make_bowl/make_cutter loft the
+        # lower ring to an upper ring offset in the *opposite* direction,
+        # see make_box_contour's `i` sign flip). Even a small nonzero offset
+        # here can make the boolean cutter self-intersect at the rim under
+        # alcove_levels' subsurf smoothing, corrupting the cavity's normals
+        # (renders as crumpled geometry or a black fan/streak) -- see
+        # bathtub.py's identical bug, where bisecting down from the
+        # original absolute range found even 0.5%-of-width still broke the
+        # worst-case seed and only 0 was reliably clean. Disabled here too.
+        disp_x0 = 0.0
+        inst.disp_y = 0.0
         inst.has_curve = uniform() < 0.5
         inst.has_legs = uniform() < 0.5
         inst.leg_height = uniform(0.2, 0.3) * depth
@@ -198,12 +208,21 @@ class BathroomSinkFactory(BathtubFactory):
         butil.apply_transform(obj, True)
         surface.assign_material(obj, self.surface)
         if self.has_extrude:
+            # Anchor the tap to the sink's *actual* bounding box rather than
+            # the theoretical (-1 - size_extrude + tap_offset) * size edge.
+            # That formula only matches the real back rim when extrude_back
+            # actually produced a ledge; if the back-face selection picks up
+            # nothing (or the geometry is otherwise off), the tap is left
+            # floating clear of the basin. Anchoring to the real min-x / top
+            # is identical in the normal case and can't float.
+            sink_co = read_co(obj)
+            sink_min, sink_max = sink_co.min(0), sink_co.max(0)
             tap = self.tap_factory(np.random.randint(1e7))
-            min_x = np.min(read_co(tap)[:, 0])
+            tap_min_x = np.min(read_co(tap)[:, 0])
             tap.location = (
-                (-1 - self.size_extrude + self.tap_offset) * self.size - min_x,
+                sink_min[0] + self.tap_offset * self.size - tap_min_x,
                 self.width / 2,
-                self.depth,
+                sink_max[2],
             )
             butil.apply_transform(tap, True)
             obj = join_objects([obj, tap])

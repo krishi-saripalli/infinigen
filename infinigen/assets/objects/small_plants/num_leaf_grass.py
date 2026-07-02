@@ -25,6 +25,7 @@ from infinigen.core.placement.parameters import (
 )
 from infinigen.core.tagging import tag_nodegroup, tag_object
 from infinigen.core.util import blender as butil
+from infinigen.core.util.math import FixedSeed
 
 
 @node_utils.to_nodegroup(

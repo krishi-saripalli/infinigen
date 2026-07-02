@@ -123,8 +123,6 @@ class PotFactory(PanFactory):
             seed=params.seed,
             lower_thresh=lower_thresh,
             scale=pan_scale,
-            scratch_draw=params.scratch_draw,
-            edge_wear_draw=params.edge_wear_draw,
             metal_color=None,
         )
         self.depth = params.depth
@@ -133,7 +131,12 @@ class PotFactory(PanFactory):
         self.has_bar = params.has_bar
         self.has_handle = not self.has_bar
         self.has_guard = not self.has_bar
-        self.bar_height = params.pot_depth * bar_height_frac
+        # pot_depth's range (0.6-2.0) regularly exceeds depth's range
+        # (0.3-0.8), so an unclamped bar_height often sits above the rim
+        # entirely -- the boolean-subtracted handle ring never overlaps the
+        # body and renders as a fully detached floating ring/bar. Clamp so
+        # the handle always at least reaches the rim.
+        self.bar_height = min(params.pot_depth * bar_height_frac, self.depth)
         self.bar_inner_radius = self.bar_radius * bar_inner_radius_ratio
         self.bar_scale = (params.bar_scale_x, 1.0, bar_scale_z)
         self.bar_taper = bar_taper
@@ -153,7 +156,7 @@ class PotFactory(PanFactory):
             return
         self.has_handle = not self.has_bar
         self.has_guard = not self.has_bar
-        if getattr(self, "_use_fixed_spawn_draws", False):
+        if not self.has_bar or getattr(self, "_use_fixed_spawn_draws", False):
             return
         self.bar_x = 1 + uniform(-self.bar_radius, self.bar_radius) * 0.05
         self.bar_inner_radius = log_uniform(0.2, 0.4) * self.bar_radius
